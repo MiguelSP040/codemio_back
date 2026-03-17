@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📚 Documentación del Proyecto
+    url: https://github.com/tu-usuario/codemio_back/blob/main/README.md
+    about: Consulta la documentación completa del proyecto
+  - name: 💬 Discusiones
+    url: https://github.com/tu-usuario/codemio_back/discussions
+    about: Haz preguntas o inicia discusiones con el equipo

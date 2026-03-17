@@ -1,0 +1,74 @@
+name: ✨ Feature Request
+description: Proponer una nueva funcionalidad
+title: "[FEATURE] "
+labels: ["enhancement", "needs-triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Propuesta de Nueva Funcionalidad
+        ¡Gracias por contribuir con ideas para mejorar CodeMio Backend!
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 📝 Descripción de la Funcionalidad
+      description: Describe la funcionalidad que te gustaría ver implementada
+      placeholder: Me gustaría que el sistema pudiera...
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 🎯 Problema que Resuelve
+      description: ¿Qué problema o necesidad resuelve esta funcionalidad?
+      placeholder: |
+        Esta funcionalidad es útil porque...
+        Actualmente el sistema no permite...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: 💡 Solución Propuesta
+      description: Describe cómo imaginas que debería funcionar
+      placeholder: |
+        La funcionalidad debería:
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 🔄 Alternativas Consideradas
+      description: ¿Has considerado otras soluciones o workarounds?
+      placeholder: He pensado en... pero...
+    validations:
+      required: false
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 🔥 Prioridad Sugerida
+      options:
+        - 🔴 Alta - Funcionalidad crítica
+        - 🟡 Media - Funcionalidad importante
+        - 🟢 Baja - Nice to have
+      default: 1
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: ℹ️ Información Adicional
+      description: Mockups, diagramas, referencias a otras implementaciones, etc.
+    validations:
+      required: false

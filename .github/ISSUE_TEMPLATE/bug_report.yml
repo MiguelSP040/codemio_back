@@ -1,0 +1,146 @@
+name: 🐛 Bug Report
+description: Reportar un error o problema
+title: "[BUG] "
+labels: ["bug", "needs-triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Reporte de Bug
+        Gracias por ayudarnos a mejorar CodeMio Backend. Por favor, proporciona la información solicitada.
+
+  - type: dropdown
+    id: version
+    attributes:
+      label: 🏷️ Versión
+      description: ¿En qué versión del proyecto se presenta el error?
+      options:
+        - v1.0.0
+        - v0.9.x
+        - develop
+        - main
+        - otra (especificar en descripción)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: 🌍 Ambiente
+      description: ¿En qué ambiente ocurre el problema?
+      options:
+        - Desarrollo
+        - Producción
+      default: 0
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 📝 Descripción del Problema
+      description: Describe claramente el error o comportamiento inesperado
+      placeholder: |
+        Describe qué está fallando, qué esperabas que sucediera y qué está sucediendo en su lugar.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 🔄 Pasos para Reproducir
+      description: Lista los pasos exactos para reproducir el problema
+      placeholder: |
+        1. Ir a '...'
+        2. Ejecutar comando '...'
+        3. Hacer clic en '...'
+        4. Ver error
+      value: |
+        1. 
+        2. 
+        3. 
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: ✅ Comportamiento Esperado
+      description: ¿Qué debería suceder?
+      placeholder: El sistema debería...
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: ❌ Comportamiento Actual
+      description: ¿Qué está sucediendo en su lugar?
+      placeholder: En su lugar, el sistema...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 📋 Logs y Mensajes de Error
+      description: Copia y pega cualquier log o mensaje de error relevante
+      placeholder: |
+        ```
+        Traceback (most recent call last):
+          File "...", line ..., in ...
+        Error: ...
+        ```
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: 📸 Capturas de Pantalla
+      description: Si aplica, agrega capturas de pantalla arrastrando las imágenes aquí
+      placeholder: Arrastra las imágenes aquí...
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: ℹ️ Información Adicional
+      description: Cualquier otra información relevante (configuración, datos de entrada, etc.)
+      placeholder: |
+        - Sistema operativo: 
+        - Python version: 
+        - Base de datos: 
+        - Otras observaciones:
+    validations:
+      required: false
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: 🔥 Severidad
+      description: ¿Qué tan crítico es este bug?
+      options:
+        - 🔴 Crítico - Bloquea funcionalidad principal
+        - 🟠 Alto - Afecta funcionalidad importante
+        - 🟡 Medio - Problema menor pero notable
+        - 🟢 Bajo - Problema cosmético o edge case
+      default: 2
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: ✔️ Checklist
+      options:
+        - label: He buscado en los issues existentes y no encontré uno similar
+          required: true
+        - label: He revisado la documentación del proyecto
+          required: true
+        - label: Puedo reproducir el error consistentemente
+          required: false
