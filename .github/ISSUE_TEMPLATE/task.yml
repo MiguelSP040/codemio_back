@@ -1,0 +1,137 @@
+name: 📋 Task
+description: Crear una nueva tarea de desarrollo
+title: "[TASK] "
+labels: ["task", "needs-triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Nueva Tarea de Desarrollo
+        Gracias por contribuir al proyecto CodeMio Backend. Por favor, completa la información solicitada.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 📝 Descripción
+      description: Describe detalladamente la tarea a realizar
+      placeholder: |
+        Ejemplo:
+        Implementar endpoint de autenticación JWT para usuarios.
+        
+        Debe permitir:
+        - Login con email y contraseña
+        - Generación de token JWT
+        - Validación de token en requests posteriores
+    validations:
+      required: true
+
+  - type: dropdown
+    id: roles
+    attributes:
+      label: 👥 Roles Involucrados
+      description: Selecciona los roles que participarán en esta tarea
+      multiple: true
+      options:
+        - Administrador de Bases de Datos y Seguridad
+        - Desarrollador Backend
+        - Frontend & UX
+        - Desarrollador JS
+        - Lead de Integración y QA
+        - Business Intelligence
+    validations:
+      required: true
+
+  - type: textarea
+    id: dod
+    attributes:
+      label: ✅ Definition of Done (DoD)
+      description: Lista los criterios que deben cumplirse para considerar la tarea como completada
+      placeholder: |
+        - [ ] Código implementado y funcional
+        - [ ] Tests unitarios escritos y pasando
+        - [ ] Documentación actualizada
+        - [ ] Code review aprobado
+        - [ ] Integrado en rama develop
+        - [ ] Sin errores de linting
+      value: |
+        - [ ] Código implementado y funcional
+        - [ ] Tests unitarios escritos y pasando
+        - [ ] Documentación actualizada
+        - [ ] Code review aprobado
+        - [ ] Integrado en rama develop
+        - [ ] Sin errores de linting
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 🔥 Prioridad
+      description: Selecciona la prioridad de esta tarea
+      options:
+        - 🔴 Alta
+        - 🟡 Media
+        - 🟢 Baja
+      default: 1
+    validations:
+      required: true
+
+  - type: input
+    id: estimation
+    attributes:
+      label: ⏱️ Estimación
+      description: Tiempo estimado para completar la tarea
+      placeholder: "Ej: 3 días, 8 horas, 1 sprint"
+    validations:
+      required: false
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: 📋 Criterios de Aceptación
+      description: Define los criterios de aceptación específicos
+      placeholder: |
+        - Como usuario, puedo iniciar sesión con mi email
+        - El sistema genera un token JWT válido
+        - El token expira después de 24 horas
+    validations:
+      required: false
+
+  - type: textarea
+    id: technical-notes
+    attributes:
+      label: 🔧 Notas Técnicas
+      description: Información técnica adicional, dependencias, consideraciones especiales
+      placeholder: |
+        - Usar librería PyJWT para generación de tokens
+        - Configurar SECRET_KEY en variables de entorno
+        - Implementar refresh token mechanism
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 📦 Checklist Adicional
+      description: Selecciona los elementos aplicables a esta tarea
+      options:
+        - label: Requiere cambios en la base de datos
+        - label: Requiere actualización de documentación
+        - label: Requiere configuración de variables de entorno
+        - label: Requiere cambios en CI/CD
+        - label: Requiere coordinación con frontend
+        - label: Breaking change (requiere versionado)
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        ### 📌 Información Importante
+        
+        - Sigue las convenciones de [Conventional Commits](https://www.conventionalcommits.org/)
+        - Consulta [`COMMANDS.md`](../COMMANDS.md) para comandos útiles
+        - Revisa [`PROJECT_MAP.md`](../PROJECT_MAP.md) para entender la arquitectura
+        
+        ¡Gracias por tu contribución! 🚀
