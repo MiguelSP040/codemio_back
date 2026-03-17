@@ -1,0 +1,16 @@
+[flake8]
+max-line-length = 127
+exclude =
+    .git,
+    __pycache__,
+    venv,
+    env,
+    .venv,
+    migrations,
+    settings.py,
+max-complexity = 10
+ignore =
+    # E501: line too long (handled by max-line-length)
+    E501,
+    # W503: line break before binary operator (conflicts with black)
+    W503,
