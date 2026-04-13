@@ -1,0 +1,437 @@
+from drf_yasg import openapi
+from drf_yasg.utils import swagger_auto_schema
+from rest_framework import status
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from authentication.cognito_jwt_authentication import CognitoJWTAuthentication
+from authentication.controllers.cognito_auth_controller import CognitoAuthController, map_cognito_error
+from authentication.serializers import (
+    AuthLoginSerializer,
+    AuthRegisterSerializer,
+    AuthSendSerializer,
+    AuthValidateSerializer,
+    UsuarioMeReadSerializer,
+    UsuarioProfileSerializer,
+)
+from authentication.services.cognito_service import CognitoServiceError
+
+_COGNITO_ERROR = openapi.Schema(
+    type=openapi.TYPE_OBJECT,
+    properties={
+        'code': openapi.Schema(
+            type=openapi.TYPE_STRING,
+            description='Código de error (Cognito o validación de flujo).',
+            example='InvalidPasswordException',
+        ),
+        'detail': openapi.Schema(
+            type=openapi.TYPE_STRING,
+            description='Mensaje legible para el cliente.',
+        ),
+        'request_id': openapi.Schema(
+            type=openapi.TYPE_STRING,
+            description='RequestId de AWS si Cognito lo devolvió (soporte).',
+            nullable=True,
+        ),
+        'debug': openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            description='Solo presente si `DEBUG=True` en el servidor.',
+            nullable=True,
+        ),
+    },
+)
+
+_AUTH_SEND_201 = openapi.Schema(
+    type=openapi.TYPE_OBJECT,
+    properties={
+        'detail': openapi.Schema(type=openapi.TYPE_STRING),
+        'email': openapi.Schema(type=openapi.TYPE_STRING, example='user@example.com'),
+        'cognito_sub': openapi.Schema(
+            type=openapi.TYPE_STRING,
+            description='Identificador estable en Cognito cuando está disponible.',
+            nullable=True,
+        ),
+        'otp_flow': openapi.Schema(
+            type=openapi.TYPE_STRING,
+            enum=['initial', 'resent'],
+            description='`initial`: primer envío de OTP; `resent`: reenvío a cuenta ya UNCONFIRMED.',
+        ),
+    },
+)
+
+_AUTH_VALIDATE_200 = openapi.Schema(
+    type=openapi.TYPE_OBJECT,
+    properties={
+        'detail': openapi.Schema(type=openapi.TYPE_STRING),
+        'email': openapi.Schema(type=openapi.TYPE_STRING, example='user@example.com'),
+        'already_verified': openapi.Schema(
+            type=openapi.TYPE_BOOLEAN,
+            description='`true` si el correo ya estaba confirmado en Cognito (idempotente).',
+        ),
+    },
+)
+
+_AUTH_REGISTER_RESPONSE = openapi.Schema(
+    type=openapi.TYPE_OBJECT,
+    properties={
+        'detail': openapi.Schema(type=openapi.TYPE_STRING),
+        'already_registered': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+        'correo': openapi.Schema(type=openapi.TYPE_STRING),
+        'sub_cognito': openapi.Schema(type=openapi.TYPE_STRING),
+    },
+)
+
+_AUTH_LOGOUT_200 = openapi.Schema(
+    type=openapi.TYPE_OBJECT,
+    properties={
+        'detail': openapi.Schema(
+            type=openapi.TYPE_STRING,
+            example='Sesión cerrada.',
+            description='Confirmación breve; no incluye datos de Cognito.',
+        ),
+    },
+)
+
+_AUTH_LOGIN_200 = openapi.Schema(
+    type=openapi.TYPE_OBJECT,
+    properties={
+        'detail': openapi.Schema(type=openapi.TYPE_STRING),
+        'tokens': openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            description='Tokens de Cognito. **Solo `access_token` va en `Authorization` de la API.**',
+            properties={
+                'id_token': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description='Opcional en cliente; **no** usar como cabecera Authorization en esta API.',
+                ),
+                'access_token': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description='Único JWT aceptado en `Authorization: Bearer …` para endpoints protegidos.',
+                ),
+                'refresh_token': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    nullable=True,
+                    description='Para renovación de sesión (fuera del alcance actual de esta API).',
+                ),
+                'expires_in': openapi.Schema(type=openapi.TYPE_INTEGER),
+                'token_type': openapi.Schema(type=openapi.TYPE_STRING, example='Bearer'),
+            },
+        ),
+        'auth_instructions': openapi.Schema(
+            type=openapi.TYPE_STRING,
+            description='Cómo enviar el access_token en rutas protegidas.',
+        ),
+        'usuario': openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            description='Perfil local (misma forma que GET /users/me/).',
+        ),
+    },
+)
+
+_USUARIO_ME = openapi.Schema(
+    type=openapi.TYPE_OBJECT,
+    properties={
+        'correo': openapi.Schema(type=openapi.TYPE_STRING),
+        'rol': openapi.Schema(type=openapi.TYPE_STRING),
+        'nombre': openapi.Schema(type=openapi.TYPE_STRING, nullable=True),
+        'edad': openapi.Schema(type=openapi.TYPE_INTEGER, nullable=True),
+        'perfil_github': openapi.Schema(type=openapi.TYPE_STRING, nullable=True),
+        'fecha_registro': openapi.Schema(type=openapi.TYPE_STRING, format='date-time'),
+        'sub_cognito': openapi.Schema(type=openapi.TYPE_STRING),
+        'onboarding_completed': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+    },
+)
+
+_AUTH_SEND_DESCRIPTION = (
+    '**Fase A — verificación de correo.** Envía el código OTP por correo vía Cognito.\n\n'
+    '- **Cuerpo:** `email` (JSON).\n'
+    '- **Persistencia:** solo entidad de flujo `CognitoUser` (no crea `Usuario`).\n'
+    '- **Siguiente paso:** `POST /auth/validate/` con el OTP.\n'
+)
+
+_AUTH_VALIDATE_DESCRIPTION = (
+    '**Fase A — confirmación OTP.** Valida el código recibido (`ConfirmSignUp` en Cognito).\n\n'
+    '- **Cuerpo:** `email` y `otp` (JSON).\n'
+    '- **Persistencia:** actualiza `CognitoUser` a confirmado; **no** crea `Usuario`.\n'
+    '- **Siguiente paso:** `POST /auth/register/` con contraseña definitiva.\n'
+)
+
+_AUTH_REGISTER_DESCRIPTION = (
+    '**Fase B — registro de cuenta.** Tras verificar el correo, fija la contraseña definitiva en Cognito '
+    'y crea el `Usuario` mínimo local.\n\n'
+    '- **Cuerpo:** `email` y `password` (JSON).\n'
+    '- **Requisito:** el correo debe estar `CONFIRMED` en Cognito.\n'
+    '- **No devuelve tokens:** para obtener JWT usa `POST /auth/login/` después del registro.\n'
+)
+
+_AUTH_LOGIN_DESCRIPTION = (
+    '**Fase C — login.** Tras el registro (fase B), obtienes JWT con email + contraseña.\n\n'
+    '- **Orden:** `POST /auth/send/` → `POST /auth/validate/` → `POST /auth/register/` → **este endpoint** '
+    '→ `GET|PATCH /users/me/` (fase D) → `POST /auth/logout/` al cerrar sesión.\n'
+    '- **Requisitos:** cuenta `CONFIRMED` en Cognito y `Usuario` local; no crea ni modifica perfil.\n'
+    '- **Rutas protegidas:** solo `tokens.access_token` en `Authorization: Bearer …` (no `id_token`).\n'
+)
+
+_AUTH_LOGOUT_DESCRIPTION = (
+    '**Cierre de sesión (Cognito).** Invalida la sesión del usuario en el user pool para este '
+    'app client mediante `GlobalSignOut` con el **mismo** `access_token` que usas en el resto de la API.\n\n'
+    '- **Cabecera obligatoria:** `Authorization: Bearer <access_token>` (el de `tokens.access_token` del login).\n'
+)
+
+_USERS_ME_DESCRIPTION = (
+    '**Fase D — onboarding / perfil.** Solo `Usuario` local (no Cognito).\n\n'
+    '- **Autenticación:** `Authorization: Bearer <access_token>` del login (prefijo `Bearer ` obligatorio).\n'
+    '- **Onboarding no bloquea login:** puedes autenticarte antes de completar `nombre`/`edad`.\n'
+    '- **PATCH:** parcial; `perfil_github` opcional.\n'
+    '- **Cierre de sesión:** cuando termines, `POST /auth/logout/` con el mismo Bearer revoca la sesión en Cognito sin borrar este perfil.\n'
+)
+
+
+class AuthSendView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @swagger_auto_schema(
+        tags=['Autenticación'],
+        operation_id='auth_send',
+        operation_summary='Fase A: enviar OTP de verificación de correo',
+        operation_description=_AUTH_SEND_DESCRIPTION,
+        security=[],
+        request_body=AuthSendSerializer,
+        responses={
+            201: openapi.Response(
+                description='Código enviado; solo se actualiza el flujo en Cognito y `CognitoUser`.',
+                schema=_AUTH_SEND_201,
+            ),
+            400: openapi.Response(
+                description='Datos inválidos o error de Cognito.',
+                schema=_COGNITO_ERROR,
+            ),
+            409: openapi.Response(
+                description='Correo ya verificado en Cognito u otro conflicto.',
+                schema=_COGNITO_ERROR,
+            ),
+        },
+    )
+    def post(self, request):
+        ser = AuthSendSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        ctrl = CognitoAuthController()
+        try:
+            payload = ctrl.send_verification(ser.validated_data['email'])
+        except CognitoServiceError as e:
+            code, body = map_cognito_error(e)
+            return Response(body, status=code)
+        return Response(payload, status=status.HTTP_201_CREATED)
+
+
+class AuthValidateView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @swagger_auto_schema(
+        tags=['Autenticación'],
+        operation_id='auth_validate',
+        operation_summary='Fase A: validar OTP y confirmar correo',
+        operation_description=_AUTH_VALIDATE_DESCRIPTION,
+        security=[],
+        request_body=AuthValidateSerializer,
+        responses={
+            200: openapi.Response(
+                description='Correo verificado en Cognito; `CognitoUser` actualizado (sin crear `Usuario`).',
+                schema=_AUTH_VALIDATE_200,
+            ),
+            400: openapi.Response(
+                description='OTP inválido u otro error de Cognito.',
+                schema=_COGNITO_ERROR,
+            ),
+            404: openapi.Response(
+                description='Usuario no encontrado en Cognito.',
+                schema=_COGNITO_ERROR,
+            ),
+            429: openapi.Response(
+                description='Rate limit de Cognito.',
+                schema=_COGNITO_ERROR,
+            ),
+        },
+    )
+    def post(self, request):
+        ser = AuthValidateSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        ctrl = CognitoAuthController()
+        try:
+            payload = ctrl.confirm_sign_up(ser.validated_data['email'], ser.validated_data['otp'])
+        except CognitoServiceError as e:
+            code, body = map_cognito_error(e)
+            return Response(body, status=code)
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class AuthRegisterView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @swagger_auto_schema(
+        tags=['Autenticación'],
+        operation_id='auth_register',
+        operation_summary='Fase B: contraseña definitiva y usuario local mínimo',
+        operation_description=_AUTH_REGISTER_DESCRIPTION,
+        security=[],
+        request_body=AuthRegisterSerializer,
+        responses={
+            201: openapi.Response(
+                description='Registro completado; `Usuario` creado o completado.',
+                schema=_AUTH_REGISTER_RESPONSE,
+            ),
+            200: openapi.Response(
+                description='Idempotencia: la cuenta ya estaba registrada.',
+                schema=_AUTH_REGISTER_RESPONSE,
+            ),
+            400: openapi.Response(description='Contraseña inválida u error Cognito.', schema=_COGNITO_ERROR),
+            403: openapi.Response(
+                description='Correo aún no verificado (OTP pendiente).',
+                schema=_COGNITO_ERROR,
+            ),
+            404: openapi.Response(description='Sin usuario en Cognito.', schema=_COGNITO_ERROR),
+            409: openapi.Response(description='Conflicto de `sub` con perfil local.', schema=_COGNITO_ERROR),
+        },
+    )
+    def post(self, request):
+        ser = AuthRegisterSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        ctrl = CognitoAuthController()
+        try:
+            payload = ctrl.register(ser.validated_data['email'], ser.validated_data['password'])
+        except CognitoServiceError as e:
+            code, body = map_cognito_error(e)
+            return Response(body, status=code)
+        http_status = (
+            status.HTTP_200_OK if payload.get('already_registered') else status.HTTP_201_CREATED
+        )
+        return Response(payload, status=http_status)
+
+
+class AuthLoginView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @swagger_auto_schema(
+        tags=['Autenticación'],
+        operation_id='auth_login',
+        operation_summary='Fase C: login (email + contraseña)',
+        operation_description=_AUTH_LOGIN_DESCRIPTION,
+        security=[],
+        request_body=AuthLoginSerializer,
+        responses={
+            200: openapi.Response(
+                description='Autenticación correcta; incluye tokens y perfil local.',
+                schema=_AUTH_LOGIN_200,
+            ),
+            400: openapi.Response(
+                description='Challenge Cognito no soportado aquí u otro error de parámetros.',
+                schema=_COGNITO_ERROR,
+            ),
+            401: openapi.Response(
+                description='Credenciales incorrectas.',
+                schema=_COGNITO_ERROR,
+            ),
+            403: openapi.Response(
+                description='Correo no verificado, o Cognito OK pero sin `Usuario` local.',
+                schema=_COGNITO_ERROR,
+            ),
+            404: openapi.Response(description='No existe cuenta Cognito para el correo.', schema=_COGNITO_ERROR),
+            409: openapi.Response(description='Correo del perfil local no coincide con el autenticado.', schema=_COGNITO_ERROR),
+            429: openapi.Response(description='Rate limit de Cognito.', schema=_COGNITO_ERROR),
+        },
+    )
+    def post(self, request):
+        ser = AuthLoginSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        ctrl = CognitoAuthController()
+        try:
+            payload = ctrl.login(ser.validated_data['email'], ser.validated_data['password'])
+        except CognitoServiceError as e:
+            code, body = map_cognito_error(e)
+            return Response(body, status=code)
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class AuthLogoutView(APIView):
+    authentication_classes = [CognitoJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        tags=['Autenticación'],
+        operation_id='auth_logout',
+        operation_summary='Cerrar sesión en Cognito (access token actual)',
+        operation_description=_AUTH_LOGOUT_DESCRIPTION,
+        security=[{'Bearer': []}],
+        responses={
+            200: openapi.Response(
+                description=(
+                    'Sesión cerrada en Cognito. Cuerpo mínimo (`detail` únicamente). '
+                    'Si el access token ya había expirado o Cognito ya no reconocía la sesión, '
+                    'se responde igual con 200 (idempotente; ver descripción de la operación).'
+                ),
+                schema=_AUTH_LOGOUT_200,
+            ),
+            401: openapi.Response(
+                description=(
+                    'Sin cabecera `Authorization`, sin prefijo `Bearer`, token vacío, JWT mal formado, '
+                    'token expirado, firma inválida, `id_token` en lugar de access token, '
+                    'client_id distinto, o sin perfil local para el `sub` del token.'
+                ),
+            ),
+            429: openapi.Response(description='Límite de velocidad de Cognito.', schema=_COGNITO_ERROR),
+        },
+    )
+    def post(self, request):
+        ctrl = CognitoAuthController()
+        try:
+            payload = ctrl.logout(request.auth)
+        except CognitoServiceError as e:
+            code, body = map_cognito_error(e)
+            return Response(body, status=code)
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class UsersMeView(APIView):
+    authentication_classes = [CognitoJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        tags=['Autenticación'],
+        operation_id='users_me_get',
+        operation_summary='Fase D: leer perfil local',
+        operation_description=_USERS_ME_DESCRIPTION,
+        security=[{'Bearer': []}],
+        responses={
+            200: openapi.Response(description='Perfil actual.', schema=_USUARIO_ME),
+            401: openapi.Response(description='Token ausente o inválido.'),
+        },
+    )
+    def get(self, request):
+        usuario = request.user.usuario
+        return Response(UsuarioMeReadSerializer(usuario).data)
+
+    @swagger_auto_schema(
+        tags=['Autenticación'],
+        operation_id='users_me_patch',
+        operation_summary='Fase D: actualizar perfil (onboarding) parcial',
+        operation_description=_USERS_ME_DESCRIPTION,
+        security=[{'Bearer': []}],
+        request_body=UsuarioProfileSerializer,
+        responses={
+            200: openapi.Response(description='Perfil actualizado.', schema=_USUARIO_ME),
+            400: openapi.Response(description='Datos inválidos.'),
+            401: openapi.Response(description='Token ausente o inválido.'),
+        },
+    )
+    def patch(self, request):
+        usuario = request.user.usuario
+        ser = UsuarioProfileSerializer(usuario, data=request.data, partial=True)
+        ser.is_valid(raise_exception=True)
+        ser.save()
+        usuario.refresh_from_db()
+        return Response(UsuarioMeReadSerializer(usuario).data)

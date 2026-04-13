@@ -1,22 +1,57 @@
-"""
-URL configuration for codemio_back project.
-
-The `urlpatterns` list routes URLs to views. For more information please see:
-    https://docs.djangoproject.com/en/5.2/topics/http/urls/
-Examples:
-Function views
-    1. Add an import:  from my_app import views
-    2. Add a URL to urlpatterns:  path('', views.home, name='home')
-Class-based views
-    1. Add an import:  from other_app.views import Home
-    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
-Including another URLconf
-    1. Import the include() function: from django.urls import include, path
-    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
-"""
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, re_path
+from authentication.views import (
+    AuthLoginView,
+    AuthLogoutView,
+    AuthRegisterView,
+    AuthSendView,
+    AuthValidateView,
+    UsersMeView,
+)
+from drf_yasg import openapi
+from drf_yasg.views import get_schema_view
+from rest_framework import permissions
+
+schema_view = get_schema_view(
+    openapi.Info(
+        title='Codemio API',
+        default_version='v1',
+        description=(
+            'Autenticación: \n'
+            '**A** `POST /auth/send/` + `POST /auth/validate/` (solo Cognito + `CognitoUser`) → '
+            '**B** `POST /auth/register/` (`Usuario` mínimo) → **C** `POST /auth/login/` (tokens) → '
+            '**D** `GET|PATCH /users/me/` con `Authorization: Bearer <access_token>` (solo access token) → '
+            '**cierre** `POST /auth/logout/` con el mismo Bearer (revoca sesión en Cognito; no borra perfil local).'
+        ),
+        terms_of_service='https://www.google.com/policies/terms/',
+        contact=openapi.Contact(email='contact@codemio.com'),
+        license=openapi.License(name='BSD License'),
+    ),
+    public=True,
+    permission_classes=(permissions.AllowAny,),
+)
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('auth/send/', AuthSendView.as_view(), name='auth-send'),
+    path('auth/validate/', AuthValidateView.as_view(), name='auth-validate'),
+    path('auth/register/', AuthRegisterView.as_view(), name='auth-register'),
+    path('auth/login/', AuthLoginView.as_view(), name='auth-login'),
+    path('auth/logout/', AuthLogoutView.as_view(), name='auth-logout'),
+    path('users/me/', UsersMeView.as_view(), name='users-me'),
+    re_path(
+        r'^swagger(?P<format>\.json|\.yaml)$',
+        schema_view.without_ui(cache_timeout=0),
+        name='schema-json',
+    ),
+    path(
+        'swagger/',
+        schema_view.with_ui('swagger', cache_timeout=0),
+        name='schema-swagger-ui',
+    ),
+    path(
+        'redoc/',
+        schema_view.with_ui('redoc', cache_timeout=0),
+        name='schema-redoc',
+    ),
 ]

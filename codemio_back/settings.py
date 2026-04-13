@@ -12,8 +12,16 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 import os
 from pathlib import Path
-from decouple import config, Csv
+
 import dj_database_url
+from decouple import Csv, config
+
+try:
+    import pymysql
+
+    pymysql.install_as_MySQLdb()
+except ImportError:
+    pass
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -43,6 +51,9 @@ INSTALLED_APPS = [
     # Third party apps
     'rest_framework',
     'corsheaders',
+    'drf_yasg',
+    # Local apps
+    'authentication',
 ]
 
 MIDDLEWARE = [
@@ -83,6 +94,9 @@ WSGI_APPLICATION = 'codemio_back.wsgi.application'
 DATABASE_URL = config('DATABASE_URL', default=None)
 
 if DATABASE_URL:
+    # dj-database-url 2.x no reconoce mysql+pymysql; con PyMySQL como MySQLdb basta el esquema mysql://
+    if DATABASE_URL.startswith('mysql+pymysql://'):
+        DATABASE_URL = 'mysql://' + DATABASE_URL.removeprefix('mysql+pymysql://')
     DATABASES = {
         'default': dj_database_url.parse(DATABASE_URL)
     }
@@ -150,6 +164,23 @@ CORS_ALLOWED_ORIGINS = config(
 
 CORS_ALLOW_CREDENTIALS = True
 
+SWAGGER_SETTINGS = {
+    'USE_SESSION_AUTH': False,
+    'SECURITY_DEFINITIONS': {
+        'Bearer': {
+            'type': 'apiKey',
+            'name': 'Authorization',
+            'in': 'header',
+            'description': (
+                '**access_token** de Cognito (respuesta `tokens.access_token` de `POST /auth/login/`). '
+                'Swagger 2 / apiKey: pega en Authorize el **valor completo** de la cabecera, '
+                'incluyendo la palabra Bearer y un espacio antes del JWT, por ejemplo: '
+                '`Bearer eyJraWQiOiJ...` (si solo pegas el JWT, la petición fallará).'
+            ),
+        }
+    },
+}
+
 # Django REST Framework
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
@@ -161,3 +192,12 @@ REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 10,
 }
+
+AWS_ACCESS_KEY_ID = config('AWS_ACCESS_KEY_ID', default='')
+AWS_SECRET_ACCESS_KEY = config('AWS_SECRET_ACCESS_KEY', default='')
+AWS_COGNITO_REGION = config('AWS_COGNITO_REGION', default='us-east-1')
+AWS_COGNITO_USER_POOL_ID = config('AWS_COGNITO_USER_POOL_ID', default='')
+AWS_COGNITO_CLIENT_ID = config('AWS_COGNITO_CLIENT_ID', default='')
+AWS_COGNITO_CLIENT_SECRET = config('AWS_COGNITO_CLIENT_SECRET', default='')
+AWS_COGNITO_ISSUER = config('AWS_COGNITO_ISSUER', default='')
+AWS_COGNITO_DOMAIN = config('AWS_COGNITO_DOMAIN', default='')
