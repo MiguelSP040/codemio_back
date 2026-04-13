@@ -197,7 +197,8 @@ _AUTH_REGISTER_DESCRIPTION = (
     '**Fase B — registro de cuenta.** Tras verificar el correo, fija la contraseña definitiva en Cognito '
     'y crea el `Usuario` mínimo local.\n\n'
     '- **Cuerpo:** `email` y `password` (JSON).\n'
-    '- **Requisito:** el correo debe estar `CONFIRMED` en Cognito.\n'
+    '- **Requisito estricto (Cognito como fuente de verdad):** el usuario debe estar `CONFIRMED` '
+    'y con `email_verified=true` (cuando el atributo está disponible).\n'
     '- **No devuelve tokens:** para obtener JWT usa `POST /auth/login/` después del registro.\n'
 )
 
@@ -341,7 +342,7 @@ class AuthRegisterView(APIView):
             ),
             400: openapi.Response(description='Contraseña inválida u error Cognito.', schema=_COGNITO_ERROR),
             403: openapi.Response(
-                description='Correo aún no verificado (OTP pendiente).',
+                description='Correo aún no verificado en Cognito (`CONFIRMED`/`email_verified`).',
                 schema=_COGNITO_ERROR,
             ),
             404: openapi.Response(description='Sin usuario en Cognito.', schema=_COGNITO_ERROR),

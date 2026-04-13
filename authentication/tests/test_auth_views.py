@@ -29,6 +29,14 @@ class AuthRegisterViewTests(TestCase):
         r2 = self.client.post('/auth/register/', {'email': 'a@b.com', 'password': 'Password1!x'}, format='json')
         self.assertEqual(r2.status_code, status.HTTP_200_OK)
 
+    def test_swagger_register_indica_dependencia_de_validate(self):
+        r = self.client.get('/swagger.json')
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        post = r.json()['paths']['/auth/register/']['post']
+        desc = (post.get('description') or '').lower()
+        self.assertIn('verificar', desc)
+        self.assertIn('confirmed', desc)
+
 
 class AuthSendViewUsuarioTests(TestCase):
     def setUp(self):

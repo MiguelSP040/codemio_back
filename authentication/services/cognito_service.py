@@ -114,6 +114,29 @@ class CognitoService:
     def get_user_status(self, email: str) -> str | None:
         return self._user_status_optional(email)
 
+    @staticmethod
+    def _parse_bool_attr(value: str | None) -> bool | None:
+        if value is None:
+            return None
+        normalized = str(value).strip().lower()
+        if normalized in ('true', '1', 'yes'):
+            return True
+        if normalized in ('false', '0', 'no'):
+            return False
+        return None
+
+    def get_user_registration_state(self, email: str) -> tuple[str | None, bool | None]:
+        r = self._admin_get_user_optional(email)
+        if not r:
+            return None, None
+        user_status = r.get('UserStatus')
+        email_verified: bool | None = None
+        for attr in r.get('UserAttributes') or []:
+            if attr.get('Name') == 'email_verified':
+                email_verified = self._parse_bool_attr(attr.get('Value'))
+                break
+        return user_status, email_verified
+
     def get_sub_for_username(self, email: str) -> str | None:
         r = self._admin_get_user_optional(email)
         return self._sub_from_admin_user(r) if r else None
