@@ -5,13 +5,11 @@ import logging
 import secrets
 from decimal import Decimal
 from typing import Any, Literal, NotRequired, TypedDict
-
 import boto3
 from botocore.exceptions import ClientError
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
-
 
 def serialize_cognito_payload(obj: Any) -> Any:
     if obj is None:
@@ -27,7 +25,6 @@ def serialize_cognito_payload(obj: Any) -> Any:
     if hasattr(obj, 'isoformat'):
         return obj.isoformat()
     return obj
-
 
 class CognitoServiceError(Exception):
     def __init__(self, code: str, message: str, raw_response: dict[str, Any] | None = None):
@@ -45,23 +42,18 @@ class CognitoServiceError(Exception):
 class SignUpOrResendAlreadyConfirmed(TypedDict):
     kind: Literal['already_confirmed']
 
-
 class SignUpOrResendSignUp(TypedDict):
     kind: Literal['sign_up']
     sign_up_response: dict[str, Any]
-
 
 class SignUpOrResendResend(TypedDict):
     kind: Literal['resend']
     resend_response: dict[str, Any]
     cognito_sub: NotRequired[str | None]
 
-
 SignUpOrResendResult = SignUpOrResendAlreadyConfirmed | SignUpOrResendSignUp | SignUpOrResendResend
 
-
 class CognitoService:
-
     def __init__(self, client_id: str, client_secret: str | None, region: str, user_pool_id: str):
         self.client_id = client_id
         self.client_secret = (client_secret or '').strip() or None
@@ -302,12 +294,37 @@ class CognitoService:
             self._log_client_error('InitiateAuth', email, e)
             raise self._map_client_error(e) from e
 
+    def initiate_auth_refresh_token(
+        self, refresh_token: str, username_for_secret_hash: str | None = None
+    ) -> dict[str, Any]:
+        auth_parameters: dict[str, str] = {'REFRESH_TOKEN': refresh_token}
+        if self.uses_secret_hash:
+            uname = (username_for_secret_hash or '').strip().lower()
+            if not uname:
+                raise CognitoServiceError(
+                    code='RefreshSecretHashParamsException',
+                    message=(
+                        'Este cliente Cognito usa client secret. Incluye en el cuerpo JSON el '
+                        'campo `email` (el mismo que en POST /auth/login/) junto con `refresh_token`.'
+                    ),
+                )
+            sh = self._secret_hash_payload(uname)
+            if sh.get('SecretHash'):
+                auth_parameters['SECRET_HASH'] = sh['SecretHash']
+        log_label = '<refresh_token>'
+        try:
+            response = self.client.initiate_auth(
+                AuthFlow='REFRESH_TOKEN_AUTH',
+                ClientId=self.client_id,
+                AuthParameters=auth_parameters,
+            )
+            self._log_success('InitiateAuthRefresh', log_label, response)
+            return response
+        except ClientError as e:
+            self._log_client_error('InitiateAuthRefresh', log_label, e)
+            raise self._map_client_error(e) from e
+
     def global_sign_out(self, access_token: str) -> Literal['signed_out', 'session_already_invalid']:
-        """
-        Cierra la sesión del usuario en Cognito para este cliente (`GlobalSignOut` con el
-        **access token** actual). Revoca los refresh tokens emitidos para ese usuario en
-        este app client; no sustituye un flujo explícito de refresh en la API.
-        """
         log_label = '<access_token>'
         try:
             response = self.client.global_sign_out(AccessToken=access_token)

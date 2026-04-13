@@ -29,7 +29,7 @@ El proyecto consiste en el desarrollo de una aplicación web que permita a los u
 
 ### Características Principales
 
-✅ **Registro y autenticación de usuarios** con **Amazon Cognito** (OTP por correo, registro, login JWT) y perfil local (`Usuario`); ver [authentication/README.md](authentication/README.md)  
+✅ **Registro y autenticación de usuarios** con **Amazon Cognito** (OTP por correo, registro, login JWT, renovación con refresh token, logout) y perfil local (`Usuario`); ver [authentication/README.md](authentication/README.md)  
 ✅ **Gestión completa de proyectos Java** (crear, editar, eliminar, listar)  
 ✅ **Carga de archivos** individuales o en lote (`.java` y `.zip`)  
 ✅ **Descompresión automática** de archivos comprimidos  
@@ -66,7 +66,7 @@ Este proyecto incluye documentación detallada para facilitar el desarrollo:
 | Archivo | Propósito |
 |---------|-----------|
 | [`README.md`](README.md) | **Guía principal** - Instalación, configuración y uso general |
-| [`authentication/README.md`](authentication/README.md) | **Autenticación** - Flujo Cognito (send → validate → register → login → users/me → logout), tokens y modelos |
+| [`authentication/README.md`](authentication/README.md) | **Autenticación** - Flujo Cognito (send → validate → register → login → refresh → users/me → logout), tokens y modelos |
 | [`CONFIGURATION_SUMMARY.md`](CONFIGURATION_SUMMARY.md) | **Resumen de configuración** - Explicación detallada de todos los archivos de configuración |
 | [`COMMANDS.md`](COMMANDS.md) | **Referencia de comandos** - Lista completa de comandos útiles para desarrollo |
 | [`PROJECT_MAP.md`](PROJECT_MAP.md) | **Mapa técnico del proyecto** - Arquitectura y flujos visualizados con Mermaid |

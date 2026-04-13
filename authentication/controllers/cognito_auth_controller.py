@@ -1,5 +1,4 @@
 from django.conf import settings
-
 from authentication.models import CognitoUser, CognitoUserStatus, Usuario
 from authentication.serializers import UsuarioMeReadSerializer
 from authentication.services.cognito_service import (
@@ -12,11 +11,9 @@ from authentication.services.usuario_cognito_sync import crear_usuario_minimo_po
 
 _OTP_FLOW_PUBLIC = {'sign_up': 'initial', 'resend': 'resent'}
 
-
 class CognitoAuthController:
     def __init__(self, cognito: CognitoService | None = None):
         from authentication.services import get_cognito_service
-
         self._cognito = cognito or get_cognito_service()
 
     def _sync_cognito_sub_from_remote(self, normalized: str) -> str | None:
@@ -96,10 +93,6 @@ class CognitoAuthController:
         return out
 
     def register(self, email: str, password: str) -> dict:
-        """
-        Fase B: contraseña definitiva en Cognito + `Usuario` mínimo local.
-        Requiere correo ya confirmado en Cognito.
-        """
         normalized = email.strip().lower()
         remote_status = self._cognito.get_user_status(normalized)
         if remote_status is None:
@@ -184,9 +177,6 @@ class CognitoAuthController:
         }
 
     def login(self, email: str, password: str) -> dict:
-        """
-        Fase C: autenticación Cognito + comprobación de `Usuario` local (no crea ni modifica perfil).
-        """
         normalized = email.strip().lower()
         remote_status = self._cognito.get_user_status(normalized)
         if remote_status is None:
@@ -253,12 +243,40 @@ class CognitoAuthController:
         }
 
     def logout(self, access_token: str) -> dict:
-        """
-        Cierra la sesión en Cognito (`GlobalSignOut`) para el access token actual.
-        No crea ni modifica `Usuario` ni onboarding.
-        """
         self._cognito.global_sign_out(access_token)
         return {'detail': 'Sesión cerrada.'}
+
+    def refresh_tokens(self, refresh_token: str, email: str | None = None) -> dict:
+        email_norm = email.strip().lower() if email else None
+        auth_response = self._cognito.initiate_auth_refresh_token(
+            refresh_token,
+            username_for_secret_hash=email_norm,
+        )
+        if 'AuthenticationResult' not in auth_response:
+            challenge = auth_response.get('ChallengeName', 'UNKNOWN')
+            raise CognitoServiceError(
+                code='AuthChallengeRequiredException',
+                message=(
+                    f'Cognito requiere un paso adicional ({challenge}) tras el refresh. '
+                    'Este cliente solo contempla renovación directa con refresh_token.'
+                ),
+            )
+        ar = auth_response['AuthenticationResult']
+        return {
+            'detail': 'Tokens renovados correctamente.',
+            'tokens': {
+                'access_token': ar.get('AccessToken'),
+                'expires_in': ar.get('ExpiresIn'),
+                'token_type': ar.get('TokenType') or 'Bearer',
+                'id_token': ar.get('IdToken'),
+                'refresh_token': ar.get('RefreshToken'),
+            },
+            'auth_instructions': (
+                'En rutas protegidas envía: Authorization: Bearer <tokens.access_token> '
+                '(solo access_token). El refresh_token no va en esa cabecera; '
+                'úsalo solo en POST /auth/refresh/ cuando el access_token expire.'
+            ),
+        }
 
 
 def map_cognito_error(exc: CognitoServiceError) -> tuple[int, dict]:
@@ -285,6 +303,8 @@ def map_cognito_error(exc: CognitoServiceError) -> tuple[int, dict]:
     ):
         status = 403
     elif exc.code in ('AuthChallengeRequiredException',):
+        status = 400
+    elif exc.code in ('RefreshSecretHashParamsException',):
         status = 400
     body: dict = {
         'code': exc.code,

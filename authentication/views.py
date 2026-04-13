@@ -4,11 +4,11 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-
 from authentication.cognito_jwt_authentication import CognitoJWTAuthentication
 from authentication.controllers.cognito_auth_controller import CognitoAuthController, map_cognito_error
 from authentication.serializers import (
     AuthLoginSerializer,
+    AuthRefreshSerializer,
     AuthRegisterSerializer,
     AuthSendSerializer,
     AuthValidateSerializer,
@@ -112,7 +112,7 @@ _AUTH_LOGIN_200 = openapi.Schema(
                 'refresh_token': openapi.Schema(
                     type=openapi.TYPE_STRING,
                     nullable=True,
-                    description='Para renovación de sesión (fuera del alcance actual de esta API).',
+                    description='Guardar en cliente para POST /auth/refresh/ cuando expire el access_token.',
                 ),
                 'expires_in': openapi.Schema(type=openapi.TYPE_INTEGER),
                 'token_type': openapi.Schema(type=openapi.TYPE_STRING, example='Bearer'),
@@ -125,6 +125,42 @@ _AUTH_LOGIN_200 = openapi.Schema(
         'usuario': openapi.Schema(
             type=openapi.TYPE_OBJECT,
             description='Perfil local (misma forma que GET /users/me/).',
+        ),
+    },
+)
+
+_AUTH_REFRESH_200 = openapi.Schema(
+    type=openapi.TYPE_OBJECT,
+    properties={
+        'detail': openapi.Schema(type=openapi.TYPE_STRING),
+        'tokens': openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            description=(
+                'Nuevos tokens de Cognito. **Solo `access_token` es el JWT de la API** '
+                '(`Authorization: Bearer …`). El `refresh_token` no se envía como Bearer.'
+            ),
+            properties={
+                'access_token': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description='Nuevo access token para rutas protegidas.',
+                ),
+                'id_token': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    nullable=True,
+                    description='Si Cognito lo devuelve en el refresh; no usar como cabecera Authorization.',
+                ),
+                'expires_in': openapi.Schema(type=openapi.TYPE_INTEGER),
+                'token_type': openapi.Schema(type=openapi.TYPE_STRING, example='Bearer'),
+                'refresh_token': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    nullable=True,
+                    description='Nuevo refresh si Cognito lo emite; si es null, sigue válido el anterior.',
+                ),
+            },
+        ),
+        'auth_instructions': openapi.Schema(
+            type=openapi.TYPE_STRING,
+            description='Uso del access_token vs refresh_token.',
         ),
     },
 )
@@ -168,9 +204,23 @@ _AUTH_REGISTER_DESCRIPTION = (
 _AUTH_LOGIN_DESCRIPTION = (
     '**Fase C — login.** Tras el registro (fase B), obtienes JWT con email + contraseña.\n\n'
     '- **Orden:** `POST /auth/send/` → `POST /auth/validate/` → `POST /auth/register/` → **este endpoint** '
-    '→ `GET|PATCH /users/me/` (fase D) → `POST /auth/logout/` al cerrar sesión.\n'
+    '→ `POST /auth/refresh/` si expira el access_token → `GET|PATCH /users/me/` (fase D) → '
+    '`POST /auth/logout/` al cerrar sesión.\n'
     '- **Requisitos:** cuenta `CONFIRMED` en Cognito y `Usuario` local; no crea ni modifica perfil.\n'
     '- **Rutas protegidas:** solo `tokens.access_token` en `Authorization: Bearer …` (no `id_token`).\n'
+)
+
+_AUTH_REFRESH_DESCRIPTION = (
+    '**Renovación de tokens (Cognito).** Endpoint **sin** cabecera `Authorization: Bearer`. '
+    'Sirve cuando el `access_token` ya expiró o va a expirar y el cliente aún tiene un '
+    '`refresh_token` válido del login o de un refresh anterior.\n\n'
+    '- **Cuerpo JSON:** `refresh_token` (obligatorio). Si el app client usa **client secret**, '
+    'añade también `email` (el mismo que en `POST /auth/login/`); el backend calcula `SECRET_HASH` '
+    'dentro de `CognitoService`.\n'
+    '- **No** crea ni modifica `Usuario`, `CognitoUser` ni onboarding; solo delega en Cognito.\n'
+    '- **Salida:** misma forma de `tokens` que el login (sin perfil `usuario`). El token oficial '
+    'de la API sigue siendo **`tokens.access_token`** en rutas protegidas.\n'
+    '- **No** mezclar con login (credenciales) ni con logout (invalidación con access token).\n'
 )
 
 _AUTH_LOGOUT_DESCRIPTION = (
@@ -181,7 +231,8 @@ _AUTH_LOGOUT_DESCRIPTION = (
 
 _USERS_ME_DESCRIPTION = (
     '**Fase D — onboarding / perfil.** Solo `Usuario` local (no Cognito).\n\n'
-    '- **Autenticación:** `Authorization: Bearer <access_token>` del login (prefijo `Bearer ` obligatorio).\n'
+    '- **Autenticación:** `Authorization: Bearer <access_token>` del login o de `POST /auth/refresh/` '
+    '(prefijo `Bearer ` obligatorio).\n'
     '- **Onboarding no bloquea login:** puedes autenticarte antes de completar `nombre`/`edad`.\n'
     '- **PATCH:** parcial; `perfil_github` opcional.\n'
     '- **Cierre de sesión:** cuando termines, `POST /auth/logout/` con el mismo Bearer revoca la sesión en Cognito sin borrar este perfil.\n'
@@ -351,6 +402,48 @@ class AuthLoginView(APIView):
         ctrl = CognitoAuthController()
         try:
             payload = ctrl.login(ser.validated_data['email'], ser.validated_data['password'])
+        except CognitoServiceError as e:
+            code, body = map_cognito_error(e)
+            return Response(body, status=code)
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class AuthRefreshView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @swagger_auto_schema(
+        tags=['Autenticación'],
+        operation_id='auth_refresh',
+        operation_summary='Renovar tokens (refresh_token, sin Bearer)',
+        operation_description=_AUTH_REFRESH_DESCRIPTION,
+        security=[],
+        request_body=AuthRefreshSerializer,
+        responses={
+            200: openapi.Response(
+                description='Nuevos tokens; usar `tokens.access_token` como Bearer en la API.',
+                schema=_AUTH_REFRESH_200,
+            ),
+            400: openapi.Response(
+                description='Falta `refresh_token`, falta `email` con client secret, challenge no soportado, etc.',
+                schema=_COGNITO_ERROR,
+            ),
+            401: openapi.Response(
+                description='Refresh token inválido, revocado o expirado (`NotAuthorizedException` u homólogo).',
+                schema=_COGNITO_ERROR,
+            ),
+            429: openapi.Response(description='Rate limit de Cognito.', schema=_COGNITO_ERROR),
+        },
+    )
+    def post(self, request):
+        ser = AuthRefreshSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        ctrl = CognitoAuthController()
+        try:
+            payload = ctrl.refresh_tokens(
+                ser.validated_data['refresh_token'],
+                email=ser.validated_data.get('email'),
+            )
         except CognitoServiceError as e:
             code, body = map_cognito_error(e)
             return Response(body, status=code)

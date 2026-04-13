@@ -1,14 +1,11 @@
 from __future__ import annotations
-
 import logging
 from functools import lru_cache
-
 import jwt
 from django.conf import settings
 from jwt import PyJWKClient
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
-
 from authentication.models import Usuario
 from authentication.principal import CognitoPrincipal
 
@@ -46,21 +43,7 @@ def _jwks_client_for_issuer(issuer_normalized: str) -> PyJWKClient:
 
 
 class CognitoJWTAuthentication(BaseAuthentication):
-    """
-    Valida el **access token** JWT de Cognito (claim ``token_use == "access"``).
-
-    Cabecera obligatoria::
-
-        Authorization: Bearer <access_token>
-
-    No se acepta id_token ni valores sin el prefijo ``Bearer ``.
-    """
-
     def authenticate_header(self, request):
-        """
-        Obligatorio para que DRF no rebaje ``AuthenticationFailed`` a HTTP 403
-        (``handle_exception`` exige cabecera ``WWW-Authenticate``).
-        """
         return 'Bearer'
 
     def authenticate(self, request):

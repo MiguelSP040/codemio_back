@@ -19,6 +19,29 @@ class AuthLoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True, min_length=1, max_length=128)
 
+
+class AuthRefreshSerializer(serializers.Serializer):
+    refresh_token = serializers.CharField(
+        write_only=True,
+        min_length=1,
+        max_length=4096,
+        help_text='Refresh token devuelto por Cognito en el login (o en un refresh anterior).',
+    )
+    email = serializers.EmailField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            'Obligatorio si el app client de Cognito tiene client secret: el mismo correo '
+            'que usas en POST /auth/login/ (para el cálculo interno de SECRET_HASH).'
+        ),
+    )
+
+    def validate_refresh_token(self, value: str) -> str:
+        if not (value or '').strip():
+            raise serializers.ValidationError('El refresh_token no puede estar vacío.')
+        return value.strip()
+
+
 class UsuarioMeReadSerializer(serializers.ModelSerializer):
     onboarding_completed = serializers.SerializerMethodField()
 

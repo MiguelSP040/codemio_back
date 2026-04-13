@@ -138,6 +138,41 @@ class AuthRegisterTests(TestCase):
 
         self.assertEqual(ctx.exception.code, 'SubMismatchException')
 
+class AuthRefreshControllerTests(TestCase):
+    def test_refresh_devuelve_tokens_sin_usuario(self):
+        cognito = MagicMock()
+        cognito.initiate_auth_refresh_token.return_value = {
+            'AuthenticationResult': {
+                'AccessToken': 'at',
+                'IdToken': 'it',
+                'ExpiresIn': 99,
+                'TokenType': 'Bearer',
+                'RefreshToken': 'new-rt',
+            },
+        }
+        out = CognitoAuthController(cognito=cognito).refresh_tokens('old-rt', email=None)
+        self.assertEqual(out['detail'], 'Tokens renovados correctamente.')
+        self.assertEqual(out['tokens']['access_token'], 'at')
+        self.assertEqual(out['tokens']['id_token'], 'it')
+        self.assertEqual(out['tokens']['expires_in'], 99)
+        self.assertEqual(out['tokens']['token_type'], 'Bearer')
+        self.assertEqual(out['tokens']['refresh_token'], 'new-rt')
+        self.assertIn('auth_instructions', out)
+        self.assertNotIn('usuario', out)
+        cognito.initiate_auth_refresh_token.assert_called_once_with(
+            'old-rt',
+            username_for_secret_hash=None,
+        )
+
+    def test_refresh_challenge_no_soportado(self):
+        cognito = MagicMock()
+        cognito.initiate_auth_refresh_token.return_value = {
+            'ChallengeName': 'SMS_MFA',
+            'Session': 's',
+        }
+        with self.assertRaises(CognitoServiceError) as ctx:
+            CognitoAuthController(cognito=cognito).refresh_tokens('rt')
+        self.assertEqual(ctx.exception.code, 'AuthChallengeRequiredException')
 
 class AuthLogoutControllerTests(TestCase):
     def test_logout_delega_en_cognito_y_respuesta_minima(self):

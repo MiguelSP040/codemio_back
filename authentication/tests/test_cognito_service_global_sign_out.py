@@ -1,10 +1,7 @@
 from unittest.mock import MagicMock, patch
-
 from botocore.exceptions import ClientError
 from django.test import SimpleTestCase
-
 from authentication.services.cognito_service import CognitoService, CognitoServiceError
-
 
 class CognitoGlobalSignOutServiceTests(SimpleTestCase):
     @patch('authentication.services.cognito_service.boto3.client')

@@ -1,14 +1,11 @@
 from unittest.mock import MagicMock, patch
-
 import jwt
 from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
-
 from authentication.models import RolUsuario, Usuario
 from authentication.principal import CognitoPrincipal
 from authentication.services.cognito_service import CognitoServiceError
-
 
 @override_settings(
     AWS_COGNITO_ISSUER='https://cognito-idp.us-east-1.amazonaws.com/us-east-1_TEST',
@@ -115,7 +112,6 @@ class AuthLogoutViewTests(TestCase):
         mock_decode.side_effect = _decode
         r = self.client.post('/auth/logout/', HTTP_AUTHORIZATION='Bearer mocked.access.token')
         self.assertEqual(r.status_code, status.HTTP_401_UNAUTHORIZED)
-
 
 @override_settings(
     AWS_COGNITO_ISSUER='https://cognito-idp.us-east-1.amazonaws.com/us-east-1_TEST',

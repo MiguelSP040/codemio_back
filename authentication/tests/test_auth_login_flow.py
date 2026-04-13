@@ -1,11 +1,8 @@
 from unittest.mock import MagicMock
-
 from django.test import TestCase
-
 from authentication.controllers.cognito_auth_controller import CognitoAuthController
 from authentication.models import RolUsuario, Usuario
 from authentication.services.cognito_service import CognitoServiceError
-
 
 class AuthLoginControllerTests(TestCase):
     def setUp(self):
@@ -30,9 +27,7 @@ class AuthLoginControllerTests(TestCase):
         cognito.get_user_status.return_value = 'CONFIRMED'
         cognito.initiate_auth_user_password.return_value = self._auth_result()
         cognito.get_sub_for_username.return_value = self.sub
-
         out = CognitoAuthController(cognito=cognito).login(self.email, self.password)
-
         self.assertEqual(out['detail'], 'Sesión iniciada correctamente.')
         self.assertEqual(out['tokens']['id_token'], 'id.jwt')
         self.assertEqual(out['tokens']['access_token'], 'access.jwt')
@@ -49,9 +44,7 @@ class AuthLoginControllerTests(TestCase):
         cognito.get_user_status.return_value = 'CONFIRMED'
         cognito.initiate_auth_user_password.return_value = self._auth_result()
         cognito.get_sub_for_username.return_value = self.sub
-
         out = CognitoAuthController(cognito=cognito).login(self.email, self.password)
-
         self.assertFalse(out['usuario']['onboarding_completed'])
 
     def test_login_falla_password_incorrecta(self):
@@ -62,10 +55,8 @@ class AuthLoginControllerTests(TestCase):
             code='NotAuthorizedException',
             message='Incorrect username or password.',
         )
-
         with self.assertRaises(CognitoServiceError) as ctx:
             CognitoAuthController(cognito=cognito).login(self.email, self.password)
-
         self.assertEqual(ctx.exception.code, 'NotAuthorizedException')
 
     def test_login_falla_sin_usuario_local(self):
@@ -76,7 +67,6 @@ class AuthLoginControllerTests(TestCase):
 
         with self.assertRaises(CognitoServiceError) as ctx:
             CognitoAuthController(cognito=cognito).login(self.email, self.password)
-
         self.assertEqual(ctx.exception.code, 'LocalProfileNotFoundException')
         self.assertEqual(Usuario.objects.count(), 0)
 
@@ -85,12 +75,10 @@ class AuthLoginControllerTests(TestCase):
         cognito.get_user_status.return_value = 'CONFIRMED'
         cognito.initiate_auth_user_password.return_value = self._auth_result()
         cognito.get_sub_for_username.return_value = self.sub
-
         try:
             CognitoAuthController(cognito=cognito).login(self.email, self.password)
         except CognitoServiceError:
             pass
-
         self.assertEqual(Usuario.objects.count(), 0)
 
     def test_login_falla_correo_no_confirmado(self):
@@ -99,7 +87,6 @@ class AuthLoginControllerTests(TestCase):
 
         with self.assertRaises(CognitoServiceError) as ctx:
             CognitoAuthController(cognito=cognito).login(self.email, self.password)
-
         self.assertEqual(ctx.exception.code, 'UserNotConfirmedForLoginException')
         cognito.initiate_auth_user_password.assert_not_called()
 
@@ -114,7 +101,6 @@ class AuthLoginControllerTests(TestCase):
 
         with self.assertRaises(CognitoServiceError) as ctx:
             CognitoAuthController(cognito=cognito).login(self.email, self.password)
-
         self.assertEqual(ctx.exception.code, 'AuthChallengeRequiredException')
 
     def test_login_falla_correo_local_no_coincide(self):

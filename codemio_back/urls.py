@@ -3,6 +3,7 @@ from django.urls import path, re_path
 from authentication.views import (
     AuthLoginView,
     AuthLogoutView,
+    AuthRefreshView,
     AuthRegisterView,
     AuthSendView,
     AuthValidateView,
@@ -17,15 +18,15 @@ schema_view = get_schema_view(
         title='Codemio API',
         default_version='v1',
         description=(
-            'Autenticación: \n'
-            '**A** `POST /auth/send/` + `POST /auth/validate/` (solo Cognito + `CognitoUser`) → '
-            '**B** `POST /auth/register/` (`Usuario` mínimo) → **C** `POST /auth/login/` (tokens) → '
-            '**D** `GET|PATCH /users/me/` con `Authorization: Bearer <access_token>` (solo access token) → '
-            '**cierre** `POST /auth/logout/` con el mismo Bearer (revoca sesión en Cognito; no borra perfil local).'
+            '**Autenticación:**\n\n'
+            '**A** `POST /auth/send/` + `POST /auth/validate/` (Cognito + `CognitoUser`)\n'
+            '**B** `POST /auth/register/` (`Usuario` mínimo, sin tokens)\n'
+            '**C** `POST /auth/login/` (tokens iniciales)\n'
+            '**Renovación** `POST /auth/refresh/` (JSON con `refresh_token`; **sin** Bearer)\n'
+            '**D** `GET|PATCH /users/me/` con `Authorization: Bearer <access_token>` (solo access token)\n'
+            '**Cierre** `POST /auth/logout/` con ese mismo Bearer.\n'
         ),
-        terms_of_service='https://www.google.com/policies/terms/',
-        contact=openapi.Contact(email='contact@codemio.com'),
-        license=openapi.License(name='BSD License'),
+        license=openapi.License(name='Codemio License'),
     ),
     public=True,
     permission_classes=(permissions.AllowAny,),
@@ -37,6 +38,7 @@ urlpatterns = [
     path('auth/validate/', AuthValidateView.as_view(), name='auth-validate'),
     path('auth/register/', AuthRegisterView.as_view(), name='auth-register'),
     path('auth/login/', AuthLoginView.as_view(), name='auth-login'),
+    path('auth/refresh/', AuthRefreshView.as_view(), name='auth-refresh'),
     path('auth/logout/', AuthLogoutView.as_view(), name='auth-logout'),
     path('users/me/', UsersMeView.as_view(), name='users-me'),
     re_path(
