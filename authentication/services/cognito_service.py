@@ -364,6 +364,55 @@ class CognitoService:
             self._log_client_error('GlobalSignOut', log_label, e)
             raise self._map_client_error(e) from e
 
+    def forgot_password(self, email: str) -> dict[str, Any]:
+        try:
+            params = {
+                'ClientId': self.client_id,
+                'Username': email,
+                **self._secret_hash_payload(email),
+            }
+            response = self.client.forgot_password(**params)
+            self._log_success('ForgotPassword', email, response)
+            return response
+        except ClientError as e:
+            self._log_client_error('ForgotPassword', email, e)
+            raise self._map_client_error(e) from e
+
+    def confirm_forgot_password(self, email: str, code: str, new_password: str) -> dict[str, Any]:
+        try:
+            params = {
+                'ClientId': self.client_id,
+                'Username': email,
+                'ConfirmationCode': code,
+                'Password': new_password,
+                **self._secret_hash_payload(email),
+            }
+            response = self.client.confirm_forgot_password(**params)
+            self._log_success('ConfirmForgotPassword', email, response)
+            return response
+        except ClientError as e:
+            self._log_client_error('ConfirmForgotPassword', email, e)
+            raise self._map_client_error(e) from e
+
+    def confirm_forgot_password_otp_probe(
+        self, email: str, code: str, probe_password: str
+    ) -> dict[str, Any]:
+
+        try:
+            params = {
+                'ClientId': self.client_id,
+                'Username': email,
+                'ConfirmationCode': code,
+                'Password': probe_password,
+                **self._secret_hash_payload(email),
+            }
+            response = self.client.confirm_forgot_password(**params)
+            self._log_success('ConfirmForgotPasswordOtpProbe', email, response)
+            return response
+        except ClientError as e:
+            self._log_client_error('ConfirmForgotPasswordOtpProbe', email, e)
+            raise self._map_client_error(e) from e
+
     @staticmethod
     def _map_client_error(e: ClientError) -> CognitoServiceError:
         err = e.response.get('Error', {})

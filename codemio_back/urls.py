@@ -1,6 +1,9 @@
 from django.contrib import admin
 from django.urls import path, re_path
 from authentication.views import (
+    AuthConfirmForgotPasswordView,
+    AuthForgotPasswordValidateCodeView,
+    AuthForgotPasswordView,
     AuthLoginView,
     AuthLogoutView,
     AuthRefreshView,
@@ -25,6 +28,9 @@ schema_view = get_schema_view(
             '**Renovación** `POST /auth/refresh/` (JSON con `refresh_token`; **sin** Bearer)\n'
             '**D** `GET|PATCH /users/me/` con `Authorization: Bearer <access_token>` (solo access token)\n'
             '**Cierre** `POST /auth/logout/` con ese mismo Bearer.\n'
+            '**Recuperación de contraseña** (independiente; requiere `Usuario` local): '
+            '`POST /auth/forgot-password/` → `POST /auth/forgot-password/validate-code/` '
+            '(validación OTP vía sondeo Cognito) → `POST /auth/confirm-forgot-password/`.\n'
         ),
         license=openapi.License(name='Codemio License'),
     ),
@@ -40,6 +46,17 @@ urlpatterns = [
     path('auth/login/', AuthLoginView.as_view(), name='auth-login'),
     path('auth/refresh/', AuthRefreshView.as_view(), name='auth-refresh'),
     path('auth/logout/', AuthLogoutView.as_view(), name='auth-logout'),
+    path('auth/forgot-password/', AuthForgotPasswordView.as_view(), name='auth-forgot-password'),
+    path(
+        'auth/forgot-password/validate-code/',
+        AuthForgotPasswordValidateCodeView.as_view(),
+        name='auth-forgot-password-validate-code',
+    ),
+    path(
+        'auth/confirm-forgot-password/',
+        AuthConfirmForgotPasswordView.as_view(),
+        name='auth-confirm-forgot-password',
+    ),
     path('users/me/', UsersMeView.as_view(), name='users-me'),
     re_path(
         r'^swagger(?P<format>\.json|\.yaml)$',
