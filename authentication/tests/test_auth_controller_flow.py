@@ -71,17 +71,27 @@ class AuthRegisterTests(TestCase):
 
     def test_register_rechaza_si_no_confirmado(self):
         cognito = MagicMock()
-        cognito.get_user_status.return_value = 'UNCONFIRMED'
+        cognito.get_user_registration_state.return_value = ('UNCONFIRMED', False)
         cognito.get_sub_for_username.return_value = 'sub-x'
         with self.assertRaises(CognitoServiceError) as ctx:
             CognitoAuthController(cognito=cognito).register(self.email, 'Password1!a')
 
         self.assertEqual(ctx.exception.code, 'EmailNotConfirmedException')
         self.assertEqual(Usuario.objects.count(), 0)
+        cognito.admin_set_user_password_permanent.assert_not_called()
+
+    def test_register_rechaza_si_email_verified_false(self):
+        cognito = MagicMock()
+        cognito.get_user_registration_state.return_value = ('CONFIRMED', False)
+        with self.assertRaises(CognitoServiceError) as ctx:
+            CognitoAuthController(cognito=cognito).register(self.email, 'Password1!a')
+        self.assertEqual(ctx.exception.code, 'EmailNotVerifiedException')
+        self.assertEqual(Usuario.objects.count(), 0)
+        cognito.admin_set_user_password_permanent.assert_not_called()
 
     def test_register_crea_usuario_minimo(self):
         cognito = MagicMock()
-        cognito.get_user_status.return_value = 'CONFIRMED'
+        cognito.get_user_registration_state.return_value = ('CONFIRMED', True)
         cognito.get_sub_for_username.return_value = 'stable-sub-123'
 
         out = CognitoAuthController(cognito=cognito).register(self.email, 'Password1!a')
@@ -101,7 +111,7 @@ class AuthRegisterTests(TestCase):
             rol=RolUsuario.USER,
         )
         cognito = MagicMock()
-        cognito.get_user_status.return_value = 'CONFIRMED'
+        cognito.get_user_registration_state.return_value = ('CONFIRMED', True)
         cognito.get_sub_for_username.return_value = 'stable-sub-123'
 
         out = CognitoAuthController(cognito=cognito).register(self.email, 'Password1!a')
@@ -113,7 +123,7 @@ class AuthRegisterTests(TestCase):
     def test_register_completa_sub_si_usuario_legacy_sin_sub(self):
         Usuario.objects.create(correo=self.email, sub_cognito=None, rol=RolUsuario.USER)
         cognito = MagicMock()
-        cognito.get_user_status.return_value = 'CONFIRMED'
+        cognito.get_user_registration_state.return_value = ('CONFIRMED', True)
         cognito.get_sub_for_username.return_value = 'filled-sub'
 
         out = CognitoAuthController(cognito=cognito).register(self.email, 'Password1!a')
@@ -130,7 +140,7 @@ class AuthRegisterTests(TestCase):
             rol=RolUsuario.USER,
         )
         cognito = MagicMock()
-        cognito.get_user_status.return_value = 'CONFIRMED'
+        cognito.get_user_registration_state.return_value = ('CONFIRMED', True)
         cognito.get_sub_for_username.return_value = 'cognito-sub-distinto'
 
         with self.assertRaises(CognitoServiceError) as ctx:

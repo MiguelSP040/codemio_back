@@ -94,7 +94,7 @@ class CognitoAuthController:
 
     def register(self, email: str, password: str) -> dict:
         normalized = email.strip().lower()
-        remote_status = self._cognito.get_user_status(normalized)
+        remote_status, remote_email_verified = self._cognito.get_user_registration_state(normalized)
         if remote_status is None:
             raise CognitoServiceError(
                 code='UserNotFoundException',
@@ -104,6 +104,11 @@ class CognitoAuthController:
             raise CognitoServiceError(
                 code='EmailNotConfirmedException',
                 message='El correo debe estar verificado (OTP) antes de registrar la contraseña.',
+            )
+        if remote_email_verified is False:
+            raise CognitoServiceError(
+                code='EmailNotVerifiedException',
+                message='Debes verificar tu correo antes de completar el registro.',
             )
 
         remote_sub = self._cognito.get_sub_for_username(normalized)
@@ -294,6 +299,8 @@ def map_cognito_error(exc: CognitoServiceError) -> tuple[int, dict]:
     elif exc.code in ('InvalidPasswordException', 'InvalidUserStateException'):
         status = 400
     elif exc.code in ('EmailNotConfirmedException',):
+        status = 403
+    elif exc.code in ('EmailNotVerifiedException',):
         status = 403
     elif exc.code in ('SubMismatchException', 'LocalProfileEmailMismatchException'):
         status = 409
