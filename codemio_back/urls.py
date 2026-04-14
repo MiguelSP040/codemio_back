@@ -1,5 +1,5 @@
 from django.contrib import admin
-from django.urls import path, re_path
+from django.urls import include, path, re_path
 from authentication.views import (
     AuthConfirmForgotPasswordView,
     AuthForgotPasswordValidateCodeView,
@@ -41,6 +41,7 @@ schema_view = get_schema_view(
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('projects/', include('projects.urls')),
     path('auth/login/', AuthLoginView.as_view(), name='auth-login'),
     path('auth/logout/', AuthLogoutView.as_view(), name='auth-logout'),
     path('auth/refresh/', AuthRefreshView.as_view(), name='auth-refresh'),

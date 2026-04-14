@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     'drf_yasg',
     # Local apps
     'authentication',
+    'projects',
 ]
 
 MIDDLEWARE = [
