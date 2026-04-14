@@ -7,6 +7,9 @@ from rest_framework.views import APIView
 from authentication.cognito_jwt_authentication import CognitoJWTAuthentication
 from authentication.controllers.cognito_auth_controller import CognitoAuthController, map_cognito_error
 from authentication.serializers import (
+    AuthConfirmForgotPasswordSerializer,
+    AuthForgotPasswordSerializer,
+    AuthForgotPasswordValidateSerializer,
     AuthLoginSerializer,
     AuthRefreshSerializer,
     AuthRegisterSerializer,
@@ -239,13 +242,174 @@ _USERS_ME_DESCRIPTION = (
     '- **Cierre de sesión:** cuando termines, `POST /auth/logout/` con el mismo Bearer revoca la sesión en Cognito sin borrar este perfil.\n'
 )
 
+_AUTH_FORGOT_PASSWORD_DESCRIPTION = (
+    '**Recuperación de contraseña — paso 1.** Envía el código por correo vía Cognito `ForgotPassword`.\n\n'
+    '- **Orden:** `POST /auth/forgot-password/` → `POST /auth/forgot-password/validate-code/` → '
+    '`POST /auth/confirm-forgot-password/`.\n'
+)
+
+_AUTH_FORGOT_VALIDATE_DESCRIPTION = (
+    '**Recuperación de contraseña — paso 2.** Comprueba el OTP **sin** fijar la nueva contraseña.\n\n'
+    '- Usa internamente `ConfirmForgotPassword` con el código del usuario y una **contraseña de sondeo** '
+    'controlada; si Cognito responde `InvalidPasswordException`, el OTP se considera válido para continuar.\n'
+    '- **No** se persiste el OTP en base de datos. El cambio final lo confirma Cognito en el paso 3.\n'
+)
+
+_AUTH_CONFIRM_FORGOT_DESCRIPTION = (
+    '**Recuperación de contraseña — paso 3.** `ConfirmForgotPassword` en Cognito con código y '
+    '`new_password` definitivos. Cognito es la autoridad del cambio.\n\n'
+    '- **Requisito:** mismo correo con `Usuario` local que en los pasos anteriores.\n'
+)
+
+_AUTH_FORGOT_PASSWORD_200 = openapi.Schema(
+    type=openapi.TYPE_OBJECT,
+    properties={
+        'detail': openapi.Schema(type=openapi.TYPE_STRING),
+        'email': openapi.Schema(type=openapi.TYPE_STRING, example='user@example.com'),
+    },
+)
+
+_AUTH_FORGOT_VALIDATE_200 = openapi.Schema(
+    type=openapi.TYPE_OBJECT,
+    properties={
+        'valid': openapi.Schema(
+            type=openapi.TYPE_BOOLEAN,
+            description='`true` si el código es válido ante Cognito en el patrón de sondeo.',
+        ),
+        'detail': openapi.Schema(type=openapi.TYPE_STRING),
+    },
+)
+
+_AUTH_CONFIRM_FORGOT_200 = openapi.Schema(
+    type=openapi.TYPE_OBJECT,
+    properties={
+        'detail': openapi.Schema(type=openapi.TYPE_STRING),
+        'email': openapi.Schema(type=openapi.TYPE_STRING),
+    },
+)
+
+class AuthForgotPasswordView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @swagger_auto_schema(
+        tags=['03 Recuperación de contraseña'],
+        operation_id='auth_forgot_password',
+        operation_summary='(1/3) Recuperación: solicitar código al correo',
+        operation_description=_AUTH_FORGOT_PASSWORD_DESCRIPTION,
+        security=[],
+        request_body=AuthForgotPasswordSerializer,
+        responses={
+            200: openapi.Response(
+                description='Cognito ha aceptado la solicitud de recuperación.',
+                schema=_AUTH_FORGOT_PASSWORD_200,
+            ),
+            400: openapi.Response(description='Error de Cognito o parámetros.', schema=_COGNITO_ERROR),
+            404: openapi.Response(
+                description='Correo sin `Usuario` local (`Invalid credentials.`).',
+                schema=_COGNITO_ERROR,
+            ),
+            429: openapi.Response(description='Límite de velocidad de Cognito.', schema=_COGNITO_ERROR),
+        },
+    )
+    def post(self, request):
+        ser = AuthForgotPasswordSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        ctrl = CognitoAuthController()
+        try:
+            payload = ctrl.forgot_password(ser.validated_data['email'])
+        except CognitoServiceError as e:
+            code, body = map_cognito_error(e)
+            return Response(body, status=code)
+        return Response(payload, status=status.HTTP_200_OK)
+
+class AuthForgotPasswordValidateCodeView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @swagger_auto_schema(
+        tags=['03 Recuperación de contraseña'],
+        operation_id='auth_forgot_password_validate_code',
+        operation_summary='(2/3) Recuperación: validar OTP (sondeo Cognito)',
+        operation_description=_AUTH_FORGOT_VALIDATE_DESCRIPTION,
+        security=[],
+        request_body=AuthForgotPasswordValidateSerializer,
+        responses={
+            200: openapi.Response(
+                description='OTP válido en el flujo de sondeo; puedes enviar la nueva contraseña.',
+                schema=_AUTH_FORGOT_VALIDATE_200,
+            ),
+            400: openapi.Response(
+                description='Código incorrecto, expirado o error de parámetros.',
+                schema=_COGNITO_ERROR,
+            ),
+            404: openapi.Response(description='Sin `Usuario` local.', schema=_COGNITO_ERROR),
+            429: openapi.Response(description='Throttling de Cognito.', schema=_COGNITO_ERROR),
+            500: openapi.Response(
+                description='Respuesta inesperada del proveedor al validar el código.',
+                schema=_COGNITO_ERROR,
+            ),
+        },
+    )
+    def post(self, request):
+        ser = AuthForgotPasswordValidateSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        ctrl = CognitoAuthController()
+        try:
+            payload = ctrl.validate_forgot_password_code(
+                ser.validated_data['email'],
+                ser.validated_data['code'],
+            )
+        except CognitoServiceError as e:
+            code, body = map_cognito_error(e)
+            return Response(body, status=code)
+        return Response(payload, status=status.HTTP_200_OK)
+
+class AuthConfirmForgotPasswordView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @swagger_auto_schema(
+        tags=['03 Recuperación de contraseña'],
+        operation_id='auth_confirm_forgot_password',
+        operation_summary='(3/3) Recuperación: nueva contraseña definitiva',
+        operation_description=_AUTH_CONFIRM_FORGOT_DESCRIPTION,
+        security=[],
+        request_body=AuthConfirmForgotPasswordSerializer,
+        responses={
+            200: openapi.Response(
+                description='Contraseña actualizada en Cognito.',
+                schema=_AUTH_CONFIRM_FORGOT_200,
+            ),
+            400: openapi.Response(
+                description='Código inválido, contraseña débil u otro error Cognito.',
+                schema=_COGNITO_ERROR,
+            ),
+            404: openapi.Response(description='Sin `Usuario` local.', schema=_COGNITO_ERROR),
+            429: openapi.Response(description='Throttling de Cognito.', schema=_COGNITO_ERROR),
+        },
+    )
+    def post(self, request):
+        ser = AuthConfirmForgotPasswordSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        ctrl = CognitoAuthController()
+        try:
+            payload = ctrl.confirm_forgot_password(
+                ser.validated_data['email'],
+                ser.validated_data['code'],
+                ser.validated_data['new_password'],
+            )
+        except CognitoServiceError as e:
+            code, body = map_cognito_error(e)
+            return Response(body, status=code)
+        return Response(payload, status=status.HTTP_200_OK)
 
 class AuthSendView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
 
     @swagger_auto_schema(
-        tags=['Autenticación'],
+        tags=['02 Verificación de correo'],
         operation_id='auth_send',
         operation_summary='Fase A: enviar OTP de verificación de correo',
         operation_description=_AUTH_SEND_DESCRIPTION,
@@ -283,7 +447,7 @@ class AuthValidateView(APIView):
     permission_classes = [AllowAny]
 
     @swagger_auto_schema(
-        tags=['Autenticación'],
+        tags=['02 Verificación de correo'],
         operation_id='auth_validate',
         operation_summary='Fase A: validar OTP y confirmar correo',
         operation_description=_AUTH_VALIDATE_DESCRIPTION,
@@ -325,9 +489,9 @@ class AuthRegisterView(APIView):
     permission_classes = [AllowAny]
 
     @swagger_auto_schema(
-        tags=['Autenticación'],
+        tags=['04 Registro y login'],
         operation_id='auth_register',
-        operation_summary='Fase B: contraseña definitiva y usuario local mínimo',
+        operation_summary='(1/2) Fase B: registro — contraseña definitiva y usuario local mínimo',
         operation_description=_AUTH_REGISTER_DESCRIPTION,
         security=[],
         request_body=AuthRegisterSerializer,
@@ -369,9 +533,9 @@ class AuthLoginView(APIView):
     permission_classes = [AllowAny]
 
     @swagger_auto_schema(
-        tags=['Autenticación'],
+        tags=['01 Sesión', '04 Registro y login'],
         operation_id='auth_login',
-        operation_summary='Fase C: login (email + contraseña)',
+        operation_summary='(2/2) Fase C: login (email + contraseña)',
         operation_description=_AUTH_LOGIN_DESCRIPTION,
         security=[],
         request_body=AuthLoginSerializer,
@@ -414,7 +578,7 @@ class AuthRefreshView(APIView):
     permission_classes = [AllowAny]
 
     @swagger_auto_schema(
-        tags=['Autenticación'],
+        tags=['01 Sesión'],
         operation_id='auth_refresh',
         operation_summary='Renovar tokens (refresh_token, sin Bearer)',
         operation_description=_AUTH_REFRESH_DESCRIPTION,
@@ -456,7 +620,7 @@ class AuthLogoutView(APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        tags=['Autenticación'],
+        tags=['01 Sesión'],
         operation_id='auth_logout',
         operation_summary='Cerrar sesión en Cognito (access token actual)',
         operation_description=_AUTH_LOGOUT_DESCRIPTION,
@@ -495,7 +659,7 @@ class UsersMeView(APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        tags=['Autenticación'],
+        tags=['05 Perfil y onboarding'],
         operation_id='users_me_get',
         operation_summary='Fase D: leer perfil local',
         operation_description=_USERS_ME_DESCRIPTION,
@@ -510,7 +674,7 @@ class UsersMeView(APIView):
         return Response(UsuarioMeReadSerializer(usuario).data)
 
     @swagger_auto_schema(
-        tags=['Autenticación'],
+        tags=['05 Perfil y onboarding'],
         operation_id='users_me_patch',
         operation_summary='Fase D: actualizar perfil (onboarding) parcial',
         operation_description=_USERS_ME_DESCRIPTION,

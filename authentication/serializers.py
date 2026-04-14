@@ -19,6 +19,23 @@ class AuthLoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True, min_length=1, max_length=128)
 
+class AuthForgotPasswordSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+
+class AuthForgotPasswordValidateSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    code = serializers.CharField(
+        max_length=32,
+        help_text='Código recibido por correo tras POST /auth/forgot-password/.',
+    )
+
+
+class AuthConfirmForgotPasswordSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    code = serializers.CharField(max_length=32)
+    new_password = serializers.CharField(write_only=True, min_length=8, max_length=128)
+
 
 class AuthRefreshSerializer(serializers.Serializer):
     refresh_token = serializers.CharField(

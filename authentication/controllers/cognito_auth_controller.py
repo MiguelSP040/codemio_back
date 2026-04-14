@@ -1,4 +1,8 @@
 from django.conf import settings
+from authentication.forgot_password_otp_probe import (
+    FORGOT_PASSWORD_OTP_PROBE_PASSWORD,
+    assert_forgot_password_otp_probe_configured,
+)
 from authentication.models import CognitoUser, CognitoUserStatus, Usuario
 from authentication.serializers import UsuarioMeReadSerializer
 from authentication.services.cognito_service import (
@@ -15,6 +19,84 @@ class CognitoAuthController:
     def __init__(self, cognito: CognitoService | None = None):
         from authentication.services import get_cognito_service
         self._cognito = cognito or get_cognito_service()
+
+    @staticmethod
+    def _ensure_usuario_exists_for_forgot(normalized_email: str) -> None:
+        if not Usuario.objects.filter(correo=normalized_email).exists():
+            raise CognitoServiceError(
+                code='UserNotFoundException',
+                message='Invalid credentials.',
+            )
+
+    def forgot_password(self, email: str) -> dict:
+        normalized = email.strip().lower()
+        self._ensure_usuario_exists_for_forgot(normalized)
+        self._cognito.forgot_password(normalized)
+        return {
+            'detail': 'Revisa tu correo para el código de recuperación de contraseña.',
+            'email': normalized,
+        }
+
+    def validate_forgot_password_code(self, email: str, code: str) -> dict:
+        normalized = email.strip().lower()
+        code_stripped = (code or '').strip()
+        self._ensure_usuario_exists_for_forgot(normalized)
+        assert_forgot_password_otp_probe_configured()
+        try:
+            self._cognito.confirm_forgot_password_otp_probe(
+                normalized, code_stripped, FORGOT_PASSWORD_OTP_PROBE_PASSWORD
+            )
+        except CognitoServiceError as e:
+            if e.code == 'InvalidPasswordException':
+                return {
+                    'valid': True,
+                    'detail': 'Código de recuperación válido. Continúa con POST /auth/confirm-forgot-password/.',
+                }
+            if e.code == 'CodeMismatchException':
+                raise CognitoServiceError(
+                    code='CodeMismatchException',
+                    message='Código de verificación incorrecto.',
+                ) from e
+            if e.code == 'ExpiredCodeException':
+                raise CognitoServiceError(
+                    code='ExpiredCodeException',
+                    message='El código de verificación ha expirado.',
+                ) from e
+            if e.code == 'InvalidParameterException':
+                raise CognitoServiceError(
+                    code='CodeMismatchException',
+                    message='Código de verificación incorrecto o no válido.',
+                ) from e
+            if e.code == 'UserNotFoundException':
+                raise CognitoServiceError(
+                    code='UserNotFoundException',
+                    message='Invalid credentials.',
+                ) from e
+            if e.code in ('TooManyRequestsException', 'LimitExceededException'):
+                raise CognitoServiceError(
+                    code=e.code,
+                    message='Demasiados intentos. Inténtalo de nuevo más tarde.',
+                ) from e
+            raise CognitoServiceError(
+                code='ForgotPasswordOtpProbeUnexpected',
+                message='No se pudo validar el código de recuperación.',
+            ) from e
+        raise CognitoServiceError(
+            code='ForgotPasswordOtpProbeUnexpected',
+            message=(
+                'Respuesta inesperada del proveedor al validar el código. '
+                'Contacta con soporte si el problema continúa.'
+            ),
+        )
+
+    def confirm_forgot_password(self, email: str, code: str, new_password: str) -> dict:
+        normalized = email.strip().lower()
+        self._ensure_usuario_exists_for_forgot(normalized)
+        self._cognito.confirm_forgot_password(normalized, (code or '').strip(), new_password)
+        return {
+            'detail': 'Contraseña actualizada correctamente.',
+            'email': normalized,
+        }
 
     def _sync_cognito_sub_from_remote(self, normalized: str) -> str | None:
         remote = self._cognito.get_sub_for_username(normalized)
@@ -296,6 +378,10 @@ def map_cognito_error(exc: CognitoServiceError) -> tuple[int, dict]:
         status = 429
     elif exc.code in ('NotAuthorizedException',):
         status = 401
+    elif exc.code in ('ForgotPasswordOtpProbeUnexpected',):
+        status = 500
+    elif exc.code in ('ExpiredCodeException', 'CodeMismatchException'):
+        status = 400
     elif exc.code in ('InvalidPasswordException', 'InvalidUserStateException'):
         status = 400
     elif exc.code in ('EmailNotConfirmedException',):
