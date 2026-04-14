@@ -166,6 +166,7 @@ CORS_ALLOW_CREDENTIALS = True
 
 SWAGGER_SETTINGS = {
     'USE_SESSION_AUTH': False,
+    'TAGS_SORTER': 'alpha',
     'SECURITY_DEFINITIONS': {
         'Bearer': {
             'type': 'apiKey',

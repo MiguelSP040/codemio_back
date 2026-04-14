@@ -40,12 +40,11 @@ schema_view = get_schema_view(
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('auth/login/', AuthLoginView.as_view(), name='auth-login'),
+    path('auth/logout/', AuthLogoutView.as_view(), name='auth-logout'),
+    path('auth/refresh/', AuthRefreshView.as_view(), name='auth-refresh'),
     path('auth/send/', AuthSendView.as_view(), name='auth-send'),
     path('auth/validate/', AuthValidateView.as_view(), name='auth-validate'),
-    path('auth/register/', AuthRegisterView.as_view(), name='auth-register'),
-    path('auth/login/', AuthLoginView.as_view(), name='auth-login'),
-    path('auth/refresh/', AuthRefreshView.as_view(), name='auth-refresh'),
-    path('auth/logout/', AuthLogoutView.as_view(), name='auth-logout'),
     path('auth/forgot-password/', AuthForgotPasswordView.as_view(), name='auth-forgot-password'),
     path(
         'auth/forgot-password/validate-code/',
@@ -57,6 +56,7 @@ urlpatterns = [
         AuthConfirmForgotPasswordView.as_view(),
         name='auth-confirm-forgot-password',
     ),
+    path('auth/register/', AuthRegisterView.as_view(), name='auth-register'),
     path('users/me/', UsersMeView.as_view(), name='users-me'),
     re_path(
         r'^swagger(?P<format>\.json|\.yaml)$',

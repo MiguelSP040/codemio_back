@@ -9,7 +9,7 @@ class ForgotPasswordOtpProbeAssertTests(SimpleTestCase):
     def test_default_probe_passes_assert(self):
         assert_forgot_password_otp_probe_configured()
 
-    def test_default_probe_matches_aiteva_constant(self):
+    def test_default_probe_matches(self):
         self.assertEqual(FORGOT_PASSWORD_OTP_PROBE_PASSWORD, 'Abcdefgh!')
 
     def test_probe_too_short_raises(self):

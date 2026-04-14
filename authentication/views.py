@@ -246,8 +246,6 @@ _AUTH_FORGOT_PASSWORD_DESCRIPTION = (
     '**Recuperación de contraseña — paso 1.** Envía el código por correo vía Cognito `ForgotPassword`.\n\n'
     '- **Orden:** `POST /auth/forgot-password/` → `POST /auth/forgot-password/validate-code/` → '
     '`POST /auth/confirm-forgot-password/`.\n'
-    '- **Requisito:** debe existir un `Usuario` local con ese correo (paridad con Aiteva).\n'
-    '- **No** crea ni modifica `Usuario`; independiente de registro/login.\n'
 )
 
 _AUTH_FORGOT_VALIDATE_DESCRIPTION = (
@@ -295,9 +293,9 @@ class AuthForgotPasswordView(APIView):
     permission_classes = [AllowAny]
 
     @swagger_auto_schema(
-        tags=['Autenticación'],
+        tags=['03 Recuperación de contraseña'],
         operation_id='auth_forgot_password',
-        operation_summary='Recuperación: enviar código al correo',
+        operation_summary='(1/3) Recuperación: solicitar código al correo',
         operation_description=_AUTH_FORGOT_PASSWORD_DESCRIPTION,
         security=[],
         request_body=AuthForgotPasswordSerializer,
@@ -330,9 +328,9 @@ class AuthForgotPasswordValidateCodeView(APIView):
     permission_classes = [AllowAny]
 
     @swagger_auto_schema(
-        tags=['Autenticación'],
+        tags=['03 Recuperación de contraseña'],
         operation_id='auth_forgot_password_validate_code',
-        operation_summary='Recuperación: validar OTP (sondeo Cognito)',
+        operation_summary='(2/3) Recuperación: validar OTP (sondeo Cognito)',
         operation_description=_AUTH_FORGOT_VALIDATE_DESCRIPTION,
         security=[],
         request_body=AuthForgotPasswordValidateSerializer,
@@ -372,9 +370,9 @@ class AuthConfirmForgotPasswordView(APIView):
     permission_classes = [AllowAny]
 
     @swagger_auto_schema(
-        tags=['Autenticación'],
+        tags=['03 Recuperación de contraseña'],
         operation_id='auth_confirm_forgot_password',
-        operation_summary='Recuperación: nueva contraseña definitiva',
+        operation_summary='(3/3) Recuperación: nueva contraseña definitiva',
         operation_description=_AUTH_CONFIRM_FORGOT_DESCRIPTION,
         security=[],
         request_body=AuthConfirmForgotPasswordSerializer,
@@ -411,7 +409,7 @@ class AuthSendView(APIView):
     permission_classes = [AllowAny]
 
     @swagger_auto_schema(
-        tags=['Autenticación'],
+        tags=['02 Verificación de correo'],
         operation_id='auth_send',
         operation_summary='Fase A: enviar OTP de verificación de correo',
         operation_description=_AUTH_SEND_DESCRIPTION,
@@ -449,7 +447,7 @@ class AuthValidateView(APIView):
     permission_classes = [AllowAny]
 
     @swagger_auto_schema(
-        tags=['Autenticación'],
+        tags=['02 Verificación de correo'],
         operation_id='auth_validate',
         operation_summary='Fase A: validar OTP y confirmar correo',
         operation_description=_AUTH_VALIDATE_DESCRIPTION,
@@ -491,9 +489,9 @@ class AuthRegisterView(APIView):
     permission_classes = [AllowAny]
 
     @swagger_auto_schema(
-        tags=['Autenticación'],
+        tags=['04 Registro y login'],
         operation_id='auth_register',
-        operation_summary='Fase B: contraseña definitiva y usuario local mínimo',
+        operation_summary='(1/2) Fase B: registro — contraseña definitiva y usuario local mínimo',
         operation_description=_AUTH_REGISTER_DESCRIPTION,
         security=[],
         request_body=AuthRegisterSerializer,
@@ -535,9 +533,9 @@ class AuthLoginView(APIView):
     permission_classes = [AllowAny]
 
     @swagger_auto_schema(
-        tags=['Autenticación'],
+        tags=['01 Sesión', '04 Registro y login'],
         operation_id='auth_login',
-        operation_summary='Fase C: login (email + contraseña)',
+        operation_summary='(2/2) Fase C: login (email + contraseña)',
         operation_description=_AUTH_LOGIN_DESCRIPTION,
         security=[],
         request_body=AuthLoginSerializer,
@@ -580,7 +578,7 @@ class AuthRefreshView(APIView):
     permission_classes = [AllowAny]
 
     @swagger_auto_schema(
-        tags=['Autenticación'],
+        tags=['01 Sesión'],
         operation_id='auth_refresh',
         operation_summary='Renovar tokens (refresh_token, sin Bearer)',
         operation_description=_AUTH_REFRESH_DESCRIPTION,
@@ -622,7 +620,7 @@ class AuthLogoutView(APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        tags=['Autenticación'],
+        tags=['01 Sesión'],
         operation_id='auth_logout',
         operation_summary='Cerrar sesión en Cognito (access token actual)',
         operation_description=_AUTH_LOGOUT_DESCRIPTION,
@@ -661,7 +659,7 @@ class UsersMeView(APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        tags=['Autenticación'],
+        tags=['05 Perfil y onboarding'],
         operation_id='users_me_get',
         operation_summary='Fase D: leer perfil local',
         operation_description=_USERS_ME_DESCRIPTION,
@@ -676,7 +674,7 @@ class UsersMeView(APIView):
         return Response(UsuarioMeReadSerializer(usuario).data)
 
     @swagger_auto_schema(
-        tags=['Autenticación'],
+        tags=['05 Perfil y onboarding'],
         operation_id='users_me_patch',
         operation_summary='Fase D: actualizar perfil (onboarding) parcial',
         operation_description=_USERS_ME_DESCRIPTION,
