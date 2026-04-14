@@ -6,6 +6,11 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from authentication.cognito_jwt_authentication import CognitoJWTAuthentication
 from authentication.controllers.cognito_auth_controller import CognitoAuthController, map_cognito_error
+from authentication.services.payload_crypto import (
+    PayloadCryptoError,
+    decrypt_profile_payload,
+    get_public_key_payload,
+)
 from authentication.serializers import (
     AuthConfirmForgotPasswordSerializer,
     AuthForgotPasswordSerializer,
@@ -688,8 +693,39 @@ class UsersMeView(APIView):
     )
     def patch(self, request):
         usuario = request.user.usuario
-        ser = UsuarioProfileSerializer(usuario, data=request.data, partial=True)
+        incoming_data = request.data
+        if 'encrypted_data' in request.data:
+            try:
+                incoming_data = decrypt_profile_payload(request.data).payload
+            except PayloadCryptoError as exc:
+                return Response(
+                    {'code': 'EncryptedPayloadInvalid', 'detail': str(exc)},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        ser = UsuarioProfileSerializer(usuario, data=incoming_data, partial=True)
         ser.is_valid(raise_exception=True)
         ser.save()
         usuario.refresh_from_db()
         return Response(UsuarioMeReadSerializer(usuario).data)
+
+
+class ProfilePayloadPublicKeyView(APIView):
+    authentication_classes = [CognitoJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        tags=['05 Perfil y onboarding'],
+        operation_id='users_me_payload_public_key',
+        operation_summary='Clave pública para cifrar PATCH /users/me/',
+        security=[{'Bearer': []}],
+        responses={200: openapi.Response(description='Clave pública activa para cifrado de payload.')},
+    )
+    def get(self, request):
+        try:
+            payload = get_public_key_payload()
+        except PayloadCryptoError as exc:
+            return Response(
+                {'code': 'PublicKeyNotConfigured', 'detail': str(exc)},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response(payload, status=status.HTTP_200_OK)

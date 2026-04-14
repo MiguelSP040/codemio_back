@@ -10,6 +10,7 @@ from authentication.views import (
     AuthRegisterView,
     AuthSendView,
     AuthValidateView,
+    ProfilePayloadPublicKeyView,
     UsersMeView,
 )
 from drf_yasg import openapi
@@ -57,6 +58,7 @@ urlpatterns = [
         name='auth-confirm-forgot-password',
     ),
     path('auth/register/', AuthRegisterView.as_view(), name='auth-register'),
+    path('auth/payload-public-key/', ProfilePayloadPublicKeyView.as_view(), name='auth-payload-public-key'),
     path('users/me/', UsersMeView.as_view(), name='users-me'),
     re_path(
         r'^swagger(?P<format>\.json|\.yaml)$',
