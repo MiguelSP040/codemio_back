@@ -98,3 +98,40 @@ class UsuarioProfileSerializer(serializers.ModelSerializer):
         if value == '':
             return None
         return value
+
+
+class AdminUsuarioReadSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Usuario
+        fields = (
+            'id',
+            'correo',
+            'rol',
+            'nombre',
+            'edad',
+            'perfil_github',
+            'fecha_registro',
+            'sub_cognito',
+        )
+        read_only_fields = fields
+
+
+class AdminUsuarioUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Usuario
+        fields = ('nombre', 'edad', 'perfil_github')
+        extra_kwargs = {
+            'nombre': {'required': False, 'allow_null': True, 'allow_blank': True},
+            'edad': {'required': False, 'allow_null': True},
+            'perfil_github': {'required': False, 'allow_null': True, 'allow_blank': True},
+        }
+
+    def validate_edad(self, value):
+        if value is not None and value < 0:
+            raise serializers.ValidationError('La edad no puede ser negativa.')
+        return value
+
+    def validate_perfil_github(self, value):
+        if value == '':
+            return None
+        return value

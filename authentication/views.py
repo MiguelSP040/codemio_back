@@ -5,13 +5,18 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from authentication.cognito_jwt_authentication import CognitoJWTAuthentication
+from authentication.controllers.admin_users_controller import AdminUsersController
 from authentication.controllers.cognito_auth_controller import CognitoAuthController, map_cognito_error
+from authentication.models import Usuario
+from authentication.permissions import IsAdminUsuario
 from authentication.services.payload_crypto import (
     PayloadCryptoError,
     decrypt_profile_payload,
     get_public_key_payload,
 )
 from authentication.serializers import (
+    AdminUsuarioReadSerializer,
+    AdminUsuarioUpdateSerializer,
     AuthConfirmForgotPasswordSerializer,
     AuthForgotPasswordSerializer,
     AuthForgotPasswordValidateSerializer,
@@ -729,3 +734,109 @@ class ProfilePayloadPublicKeyView(APIView):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         return Response(payload, status=status.HTTP_200_OK)
+
+
+class AdminUsersListView(APIView):
+    authentication_classes = [CognitoJWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminUsuario]
+
+    @swagger_auto_schema(
+        tags=['06 Administración de usuarios'],
+        operation_id='admin_users_list',
+        operation_summary='Admin: listar usuarios',
+        security=[{'Bearer': []}],
+        responses={200: openapi.Response(description='Lista de usuarios (local + estado Cognito).')},
+    )
+    def get(self, request):
+        ctrl = AdminUsersController()
+        me = request.user.usuario
+        usuarios = (
+            Usuario.objects.exclude(id=me.id)
+            .exclude(sub_cognito=me.sub_cognito)
+            .order_by('-fecha_registro')
+        )
+        out = []
+        for u in usuarios:
+            row = AdminUsuarioReadSerializer(u).data
+            row['cognito'] = ctrl.get_cognito_state(u.correo)
+            out.append(row)
+        return Response(out, status=status.HTTP_200_OK)
+
+
+class AdminUsersDetailView(APIView):
+    authentication_classes = [CognitoJWTAuthentication]
+    permission_classes = [IsAuthenticated, IsAdminUsuario]
+
+    @swagger_auto_schema(
+        tags=['06 Administración de usuarios'],
+        operation_id='admin_users_get',
+        operation_summary='Admin: ver usuario',
+        security=[{'Bearer': []}],
+        responses={200: openapi.Response(description='Usuario (local + estado Cognito).')},
+    )
+    def get(self, request, user_id: int):
+        try:
+            usuario = Usuario.objects.get(id=user_id)
+        except Usuario.DoesNotExist:
+            return Response({'detail': 'Usuario no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+        ctrl = AdminUsersController()
+        payload = AdminUsuarioReadSerializer(usuario).data
+        payload['cognito'] = ctrl.get_cognito_state(usuario.correo)
+        return Response(payload, status=status.HTTP_200_OK)
+
+    @swagger_auto_schema(
+        tags=['06 Administración de usuarios'],
+        operation_id='admin_users_patch',
+        operation_summary='Admin: actualizar usuario (solo nombre/edad/perfil_github)',
+        security=[{'Bearer': []}],
+        request_body=AdminUsuarioUpdateSerializer,
+        responses={200: openapi.Response(description='Usuario actualizado (local + estado Cognito).')},
+    )
+    def patch(self, request, user_id: int):
+        try:
+            usuario = Usuario.objects.get(id=user_id)
+        except Usuario.DoesNotExist:
+            return Response({'detail': 'Usuario no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+
+        allowed = {'nombre', 'edad', 'perfil_github'}
+        unknown = set(request.data.keys()) - allowed
+        if unknown:
+            return Response(
+                {
+                    'code': 'AdminUserPatchInvalidFields',
+                    'detail': 'Solo se permiten los campos: nombre, edad, perfil_github.',
+                    'invalid_fields': sorted(list(unknown)),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        ser = AdminUsuarioUpdateSerializer(usuario, data=request.data, partial=True)
+        ser.is_valid(raise_exception=True)
+        ser.save()
+        usuario.refresh_from_db()
+
+        ctrl = AdminUsersController()
+        if 'perfil_github' in ser.validated_data:
+            ctrl.sync_github_profile(usuario.correo, usuario.perfil_github)
+
+        payload = AdminUsuarioReadSerializer(usuario).data
+        payload['cognito'] = ctrl.get_cognito_state(usuario.correo)
+        return Response(payload, status=status.HTTP_200_OK)
+
+    @swagger_auto_schema(
+        tags=['06 Administración de usuarios'],
+        operation_id='admin_users_delete',
+        operation_summary='Admin: eliminar usuario (local + Cognito)',
+        security=[{'Bearer': []}],
+        responses={204: openapi.Response(description='Usuario eliminado.')},
+    )
+    def delete(self, request, user_id: int):
+        try:
+            usuario = Usuario.objects.get(id=user_id)
+        except Usuario.DoesNotExist:
+            return Response({'detail': 'Usuario no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+
+        ctrl = AdminUsersController()
+        ctrl.delete_in_cognito(usuario.correo)
+        usuario.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
