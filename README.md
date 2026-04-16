@@ -53,9 +53,11 @@ El proyecto consiste en el desarrollo de una aplicación web que permita a los u
 | **Análisis de Código** | Java Lint | TBD | Análisis estático de Java |
 | **Contenedores** | Docker | Latest | Contenedorización |
 | **CI/CD** | GitHub Actions | - | Integración continua |
+| **Calidad de Código** | SonarQube Cloud | - | Análisis de calidad y cobertura |
 | **Despliegue** | Render | - | Hosting y despliegue |
 | **CORS** | django-cors-headers | 4.4.0 | Manejo de CORS |
 | **Variables de Entorno** | python-decouple | 3.8 | Configuración |
+| **Cobertura de Tests** | coverage | 7.6.1 | Reportes de cobertura |
 
 ---
 
@@ -180,75 +182,7 @@ El servidor estará disponible en: `http://localhost:8000`
 
 ---
 
-### Construir imagen Docker
-
-```bash
-docker build -t codemio-backend .
-```
-
-### Ejecutar contenedor
-
-```bash
-docker run -p 8000:8000 \
-  -e SECRET_KEY="your-secret-key" \
-  -e DEBUG=False \
-  -e DATABASE_URL="mysql://user:password@host:3306/database" \
-  -e ALLOWED_HOSTS=".render.com,localhost" \
-  codemio-backend
-```
-
-### Docker Compose (opcional)
-
-Puedes crear un `docker-compose.yml` para desarrollo local:
-
-```yaml
-version: '3.8'
-
-services:
-  db:
-    image: mysql:8.0
-    environment:
-      MYSQL_DATABASE: codemio_db
-      MYSQL_USER: codemio_user
-      MYSQL_PASSWORD: codemio_password
-      MYSQL_ROOT_PASSWORD: root_password
-    volumes:
-      - mysql_data:/var/lib/mysql
-    ports:
-      - "3306:3306"
-
-  web:
-    build: .
-    command: python manage.py runserver 0.0.0.0:8000
-    volumes:
-      - .:/app
-    ports:
-      - "8000:8000"
-    environment:
-      - DATABASE_URL=mysql://codemio_user:codemio_password@db:3306/codemio_db
-      - DEBUG=True
-    depends_on:
-      - db
-
-volumes:
-  mysql_data:
-```
-
-Ya existe un `docker-compose.yml` configurado. Simplemente ejecuta:
-
-```bash
-docker-compose up
-```
-
-Para detener:
-
-```bash
-docker-compose down
-```
-
-> 📖 **Más información:** Consulta [`CONFIGURATION_SUMMARY.md`](CONFIGURATION_SUMMARY.md#-archivos-docker) para detalles sobre la configuración de Docker.
-
----
+## 🔧 Gestión de Dependencias
 
 ### Instalar nueva dependencia
 
@@ -274,6 +208,45 @@ deactivate
 
 ---
 
+## 🐳 Docker
+
+### Construir imagen Docker
+
+```bash
+docker build -t codemio-backend .
+```
+
+### Ejecutar contenedor
+
+```bash
+docker run -p 8000:8000 \
+  -e SECRET_KEY="your-secret-key" \
+  -e DEBUG=False \
+  -e DATABASE_URL="mysql://user:password@host:3306/database" \
+  -e ALLOWED_HOSTS="localhost" \
+  codemio-backend
+```
+
+### Docker Compose
+
+Ya existe un `docker-compose.yml` configurado. Simplemente ejecuta:
+
+```bash
+docker-compose up
+```
+
+Para detener:
+
+```bash
+docker-compose down
+```
+
+> 📖 **Más información:** Consulta [`CONFIGURATION_SUMMARY.md`](CONFIGURATION_SUMMARY.md#-archivos-docker) para detalles sobre la configuración de Docker.
+
+---
+
+## 📁 Estructura del Proyecto
+
 ```
 codemio_back/
 ├── codemio_back/          # Configuración principal del proyecto
@@ -298,39 +271,7 @@ codemio_back/
 
 ---
 
-### Configuración
-
-1. Conecta tu repositorio de GitHub con Render
-2. Crea un nuevo **Web Service**
-3. Configura las variables de entorno en Render
-
-**Ejemplo de variables clave:**
-```
-SECRET_KEY=<generar-nueva-clave>
-DEBUG=False
-ALLOWED_HOSTS=.render.com
-DATABASE_URL=<proporcionado-por-render-mysql>
-CORS_ALLOWED_ORIGINS=https://tu-frontend.render.com
-PORT=8000
-```
-
-4. Render detectará automáticamente el `Dockerfile` y lo usará para el despliegue
-
-### Base de Datos
-
-1. Crea una **MySQL Database** en Render (o el proveedor de tu elección)
-2. Copia la **Internal Database URL**
-3. Pégala como valor de `DATABASE_URL` en las variables de entorno del Web Service
-
-### Despliegue Automático
-
-Cada push a la rama `main` activará:
-1. GitHub Actions ejecutará tests y validará el build de Docker
-2. Render detectará el commit y construirá/desplegará automáticamente
-
-> 📋 **Guía detallada:** Para instrucciones paso a paso de despliegue, consulta la [documentación oficial de Render](https://render.com/docs/deploy-django).
-
----
+## 🧪 Testing
 
 ```bash
 # Ejecutar todos los tests
@@ -346,6 +287,53 @@ coverage report
 ```
 
 > 🧪 **Testing avanzado:** Ver [`COMMANDS.md`](COMMANDS.md#-testing) para más opciones de testing.
+
+---
+
+## 🔄 CI/CD y Análisis de Calidad
+
+Este proyecto utiliza **GitHub Actions** para integración continua y despliegue continuo, con análisis de calidad mediante **SonarQube Cloud**.
+
+### Pipelines Disponibles
+
+El proyecto cuenta con dos pipelines independientes:
+
+| Pipeline | Archivo | Rama | Propósito |
+|----------|---------|------|-----------|
+| **Production** | [`.github/workflows/production.yml`](.github/workflows/production.yml) | `main` | Pipeline de producción |
+| **Development** | [`.github/workflows/development.yml`](.github/workflows/development.yml) | `develop` | Pipeline de desarrollo |
+
+### Flujo de CI/CD
+
+Cada pipeline ejecuta automáticamente los siguientes pasos:
+
+1. **Tests y Linting**: Validación de código con flake8 y ejecución de tests
+2. **Generación de Cobertura**: Reporte de cobertura de código en formato XML
+3. **Análisis SonarQube**: Análisis estático de calidad de código
+4. **Quality Gate**: Verificación de estándares de calidad
+5. **Build Docker**: Construcción y validación de imagen Docker
+
+### Ejecución de Análisis Local
+
+Para ejecutar el análisis de cobertura localmente:
+
+```bash
+# Instalar dependencias de cobertura
+pip install coverage pytest-cov
+
+# Ejecutar tests con cobertura
+coverage run --source='.' manage.py test
+
+# Generar reporte XML (para SonarQube)
+coverage xml
+
+# Ver reporte en consola
+coverage report
+
+# Generar reporte HTML
+coverage html
+# Ver en: htmlcov/index.html
+```
 
 ---
 

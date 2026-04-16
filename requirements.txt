@@ -31,3 +31,7 @@ cryptography==44.0.2
 
 # API documentation
 drf-yasg==1.21.8
+
+# Code coverage
+coverage==7.6.1
+pytest-cov==4.1.0
