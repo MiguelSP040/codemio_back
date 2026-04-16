@@ -1,6 +1,7 @@
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
 from rest_framework import status
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -301,6 +302,8 @@ _AUTH_CONFIRM_FORGOT_200 = openapi.Schema(
 class AuthForgotPasswordView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth_forgot_password'
 
     @swagger_auto_schema(
         tags=['03 Recuperación de contraseña'],
@@ -336,6 +339,8 @@ class AuthForgotPasswordView(APIView):
 class AuthForgotPasswordValidateCodeView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth_forgot_validate'
 
     @swagger_auto_schema(
         tags=['03 Recuperación de contraseña'],
@@ -378,6 +383,8 @@ class AuthForgotPasswordValidateCodeView(APIView):
 class AuthConfirmForgotPasswordView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth_confirm_forgot'
 
     @swagger_auto_schema(
         tags=['03 Recuperación de contraseña'],
@@ -417,6 +424,8 @@ class AuthConfirmForgotPasswordView(APIView):
 class AuthSendView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth_send'
 
     @swagger_auto_schema(
         tags=['02 Verificación de correo'],
@@ -455,6 +464,8 @@ class AuthSendView(APIView):
 class AuthValidateView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth_validate'
 
     @swagger_auto_schema(
         tags=['02 Verificación de correo'],
@@ -497,6 +508,8 @@ class AuthValidateView(APIView):
 class AuthRegisterView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth_register'
 
     @swagger_auto_schema(
         tags=['04 Registro y login'],
@@ -541,6 +554,8 @@ class AuthRegisterView(APIView):
 class AuthLoginView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth_login'
 
     @swagger_auto_schema(
         tags=['01 Sesión', '04 Registro y login'],

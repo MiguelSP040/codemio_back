@@ -167,7 +167,7 @@ class ForgotPasswordApiTests(TestCase):
         )
         r = self.client.post(
             '/auth/confirm-forgot-password/',
-            {'email': self.email, 'code': 'x', 'new_password': 'Newpass1!x'},
+            {'email': self.email, 'code': '123456', 'new_password': 'Newpass1!x'},
             format='json',
         )
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
@@ -184,7 +184,7 @@ class ForgotPasswordApiTests(TestCase):
         )
         r = self.client.post(
             '/auth/forgot-password/validate-code/',
-            {'email': self.email, 'code': '1'},
+            {'email': self.email, 'code': '123456'},
             format='json',
         )
         self.assertEqual(r.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
