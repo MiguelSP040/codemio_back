@@ -8,7 +8,6 @@ on:
 
 env:
   PYTHON_VERSION: '3.12'
-  MYSQL_VERSION: '8.0'
 
 jobs:
   test:
@@ -17,7 +16,7 @@ jobs:
     
     services:
       mysql:
-        image: mysql:${{ env.MYSQL_VERSION }}
+        image: mysql:8.0
         env:
           MYSQL_DATABASE: ${{ secrets.CI_DB_NAME }}
           MYSQL_USER: ${{ secrets.CI_DB_USER }}
