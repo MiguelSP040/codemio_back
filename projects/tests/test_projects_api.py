@@ -2,6 +2,7 @@ from django.test import TestCase
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
+from analysis.models import AnalysisFinding, AnalysisInputType, AnalysisRun, AnalysisRunStatus
 from authentication.models import RolUsuario, Usuario
 from authentication.principal import CognitoPrincipal
 from projects.models import Project, ProjectState
@@ -116,3 +117,175 @@ class ProjectsApiTests(TestCase):
         list_response = self.client.get('/projects/')
         self.assertEqual(list_response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(list_response.data['results']), 0)
+
+    def test_projects_include_quality_score_from_latest_done_run_per_file(self):
+        project = Project.objects.create(user=self.owner, name='Scored Project')
+        other_project = Project.objects.create(user=self.other_user, name='Other Project')
+
+        old_run = AnalysisRun.objects.create(
+            project=project,
+            user=self.owner,
+            status=AnalysisRunStatus.DONE,
+            input_type=AnalysisInputType.JAVA,
+            original_filename='old.java',
+        )
+        new_run = AnalysisRun.objects.create(
+            project=project,
+            user=self.owner,
+            status=AnalysisRunStatus.DONE,
+            input_type=AnalysisInputType.JAVA,
+            original_filename='new.java',
+        )
+        other_run = AnalysisRun.objects.create(
+            project=other_project,
+            user=self.other_user,
+            status=AnalysisRunStatus.DONE,
+            input_type=AnalysisInputType.JAVA,
+            original_filename='other.java',
+        )
+
+        AnalysisFinding.objects.create(
+            run=old_run,
+            tool='spotbugs',
+            severity='CRITICAL',
+            rule='X1',
+            file_path='src/A.java',
+            line=10,
+            message='old critical',
+            message_es='old critical',
+        )
+        AnalysisFinding.objects.create(
+            run=old_run,
+            tool='pmd',
+            severity='HIGH',
+            rule='X2',
+            file_path='src/B.java',
+            line=20,
+            message='high issue',
+            message_es='high issue',
+        )
+        AnalysisFinding.objects.create(
+            run=new_run,
+            tool='pmd',
+            severity='MEDIUM',
+            rule='X3',
+            file_path='src/A.java',
+            line=30,
+            message='new medium',
+            message_es='new medium',
+        )
+        AnalysisFinding.objects.create(
+            run=other_run,
+            tool='pmd',
+            severity='CRITICAL',
+            rule='Y1',
+            file_path='src/Other.java',
+            line=40,
+            message='other critical',
+            message_es='other critical',
+        )
+
+        self.client.force_authenticate(user=CognitoPrincipal(self.owner))
+        response = self.client.get('/projects/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['results']), 1)
+
+        item = response.data['results'][0]
+        self.assertEqual(item['id'], project.id)
+        self.assertIn('quality_score', item)
+        self.assertEqual(item['quality_score'], 98)
+        self.assertIn('severity_summary', item)
+        self.assertEqual(
+            item['severity_summary'],
+            {
+                'critical': 0,
+                'high': 1,
+                'medium': 1,
+                'low': 0,
+                'total': 2,
+            },
+        )
+
+    def test_quality_score_is_clamped_to_zero(self):
+        project = Project.objects.create(user=self.owner, name='Clamp Score Project')
+        run = AnalysisRun.objects.create(
+            project=project,
+            user=self.owner,
+            status=AnalysisRunStatus.DONE,
+            input_type=AnalysisInputType.JAVA,
+            original_filename='huge.java',
+        )
+
+        for idx in range(30):
+            AnalysisFinding.objects.create(
+                run=run,
+                tool='spotbugs',
+                severity='CRITICAL',
+                rule=f'C{idx}',
+                file_path='src/SameFile.java',
+                line=1,
+                message='critical issue',
+                message_es='critical issue',
+            )
+
+        self.client.force_authenticate(user=CognitoPrincipal(self.owner))
+        response = self.client.get('/projects/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['results']), 1)
+        item = response.data['results'][0]
+        self.assertEqual(item['quality_score'], 0)
+        self.assertEqual(item['severity_summary']['critical'], 30)
+
+    def test_quality_score_uses_latest_run_for_same_logical_file_with_temp_paths(self):
+        project = Project.objects.create(user=self.owner, name='Temp Path Project')
+        old_run = AnalysisRun.objects.create(
+            project=project,
+            user=self.owner,
+            status=AnalysisRunStatus.DONE,
+            input_type=AnalysisInputType.JAVA,
+            original_filename='old.java',
+        )
+        new_run = AnalysisRun.objects.create(
+            project=project,
+            user=self.owner,
+            status=AnalysisRunStatus.DONE,
+            input_type=AnalysisInputType.JAVA,
+            original_filename='new.java',
+        )
+
+        AnalysisFinding.objects.create(
+            run=old_run,
+            tool='pmd',
+            severity='CRITICAL',
+            rule='OLD',
+            file_path='/tmp/codemio-analysis-1-aaaa/source/TestCalidad.java',
+            line=10,
+            message='old',
+            message_es='old',
+        )
+        AnalysisFinding.objects.create(
+            run=new_run,
+            tool='pmd',
+            severity='MEDIUM',
+            rule='NEW',
+            file_path='/tmp/codemio-analysis-2-bbbb/source/TestCalidad.java',
+            line=20,
+            message='new',
+            message_es='new',
+        )
+
+        self.client.force_authenticate(user=CognitoPrincipal(self.owner))
+        response = self.client.get('/projects/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        item = response.data['results'][0]
+        self.assertEqual(item['quality_score'], 99)
+        self.assertEqual(
+            item['severity_summary'],
+            {
+                'critical': 0,
+                'high': 0,
+                'medium': 1,
+                'low': 0,
+                'total': 1,
+            },
+        )
