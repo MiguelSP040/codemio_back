@@ -15,6 +15,7 @@ class ProjectSerializer(serializers.ModelSerializer):
     }
 
     user_id = serializers.IntegerField(read_only=True)
+    user_email = serializers.EmailField(source='user.correo', read_only=True)
     quality_score = serializers.SerializerMethodField()
     severity_summary = serializers.SerializerMethodField()
 
@@ -23,6 +24,7 @@ class ProjectSerializer(serializers.ModelSerializer):
         fields = (
             'id',
             'user_id',
+            'user_email',
             'name',
             'quality_score',
             'severity_summary',

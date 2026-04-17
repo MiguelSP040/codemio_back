@@ -4,6 +4,7 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from authentication.cognito_jwt_authentication import CognitoJWTAuthentication
+from authentication.models import RolUsuario
 from analysis.models import AnalysisRun
 from analysis.serializers import AnalysisRunCreateSerializer, AnalysisRunSerializer
 from analysis.throttles import AnalysisScopedRateThrottle
@@ -17,7 +18,13 @@ class AnalysisRunListCreateView(ListCreateAPIView):
     throttle_scope = 'analysis_runs'
 
     def get_queryset(self):
-        queryset = AnalysisRun.objects.filter(user=self.request.user.usuario).select_related('project', 'user')
+        user = self.request.user.usuario
+        queryset = AnalysisRun.objects.select_related('project', 'user')
+        if user.rol != RolUsuario.ADMIN:
+            queryset = queryset.filter(user=user)
+        owner_id = self.request.query_params.get('owner_id')
+        if owner_id and user.rol == RolUsuario.ADMIN:
+            queryset = queryset.filter(user_id=owner_id)
         project_id = self.request.query_params.get('project_id')
         if project_id:
             queryset = queryset.filter(project_id=project_id)
@@ -42,4 +49,8 @@ class AnalysisRunDetailView(RetrieveAPIView):
     serializer_class = AnalysisRunSerializer
 
     def get_queryset(self):
-        return AnalysisRun.objects.filter(user=self.request.user.usuario).select_related('project', 'user')
+        user = self.request.user.usuario
+        queryset = AnalysisRun.objects.select_related('project', 'user')
+        if user.rol == RolUsuario.ADMIN:
+            return queryset
+        return queryset.filter(user=user)

@@ -22,6 +22,11 @@ class AnalysisRunsApiTests(TestCase):
             sub_cognito='sub-other',
             rol=RolUsuario.USER,
         )
+        self.admin_user = Usuario.objects.create(
+            correo='admin@example.com',
+            sub_cognito='sub-admin',
+            rol=RolUsuario.ADMIN,
+        )
         self.owner_project = Project.objects.create(user=self.owner, name='Owner Project')
         self.other_project = Project.objects.create(user=self.other_user, name='Other Project')
 
@@ -116,3 +121,28 @@ class AnalysisRunsApiTests(TestCase):
         self.client.force_authenticate(user=CognitoPrincipal(self.owner))
         response = self.client.get(f'/analysis/runs/{foreign_run.id}/')
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_admin_can_list_and_retrieve_foreign_runs(self):
+        owner_run = AnalysisRun.objects.create(
+            project=self.owner_project,
+            user=self.owner,
+            input_type='java',
+            original_filename='owner.java',
+        )
+        foreign_run = AnalysisRun.objects.create(
+            project=self.other_project,
+            user=self.other_user,
+            input_type='java',
+            original_filename='other.java',
+        )
+        self.client.force_authenticate(user=CognitoPrincipal(self.admin_user))
+
+        response = self.client.get('/analysis/runs/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = {item['id'] for item in response.data['results']}
+        self.assertIn(owner_run.id, ids)
+        self.assertIn(foreign_run.id, ids)
+
+        detail = self.client.get(f'/analysis/runs/{foreign_run.id}/')
+        self.assertEqual(detail.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail.data['id'], foreign_run.id)

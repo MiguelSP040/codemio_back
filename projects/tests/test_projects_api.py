@@ -21,6 +21,11 @@ class ProjectsApiTests(TestCase):
             sub_cognito='sub-other',
             rol=RolUsuario.USER,
         )
+        self.admin_user = Usuario.objects.create(
+            correo='admin@example.com',
+            sub_cognito='sub-admin',
+            rol=RolUsuario.ADMIN,
+        )
 
     def test_create_project_requires_authentication(self):
         response = self.client.post('/projects/', {'name': 'Proyecto X'}, format='json')
@@ -103,6 +108,21 @@ class ProjectsApiTests(TestCase):
 
         forbidden_response = self.client.get(f'/projects/{foreign.id}/')
         self.assertEqual(forbidden_response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_admin_can_list_and_retrieve_foreign_projects(self):
+        own = Project.objects.create(user=self.owner, name='Owner Project')
+        foreign = Project.objects.create(user=self.other_user, name='Foreign Project')
+        self.client.force_authenticate(user=CognitoPrincipal(self.admin_user))
+
+        response = self.client.get('/projects/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = {item['id'] for item in response.data['results']}
+        self.assertIn(own.id, ids)
+        self.assertIn(foreign.id, ids)
+
+        detail = self.client.get(f'/projects/{foreign.id}/')
+        self.assertEqual(detail.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail.data['id'], foreign.id)
 
     def test_delete_project_is_logical(self):
         project = Project.objects.create(user=self.owner, name='Delete Me')

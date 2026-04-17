@@ -4,6 +4,7 @@ from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIV
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from authentication.cognito_jwt_authentication import CognitoJWTAuthentication
+from authentication.models import RolUsuario
 from projects.models import Project, ProjectState
 from projects.serializers import ProjectSerializer
 
@@ -16,7 +17,14 @@ class ProjectListCreateView(ListCreateAPIView):
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return Project.objects.none()
-        return Project.objects.filter(user=self.request.user.usuario, state=ProjectState.ACTIVE)
+        user = self.request.user.usuario
+        queryset = Project.objects.filter(state=ProjectState.ACTIVE).select_related('user')
+        if user.rol == RolUsuario.ADMIN:
+            owner_id = self.request.query_params.get('owner_id')
+            if owner_id:
+                queryset = queryset.filter(user_id=owner_id)
+            return queryset
+        return queryset.filter(user=user)
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user.usuario)
@@ -30,7 +38,11 @@ class ProjectDetailView(RetrieveUpdateDestroyAPIView):
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return Project.objects.none()
-        return Project.objects.filter(user=self.request.user.usuario, state=ProjectState.ACTIVE)
+        user = self.request.user.usuario
+        queryset = Project.objects.filter(state=ProjectState.ACTIVE).select_related('user')
+        if user.rol == RolUsuario.ADMIN:
+            return queryset
+        return queryset.filter(user=user)
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
