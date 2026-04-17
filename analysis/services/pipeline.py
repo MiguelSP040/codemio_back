@@ -140,24 +140,31 @@ def _execute_analysis_run(
 def _extract_zip(zip_path: Path, target_dir: Path) -> int:
     max_files = settings.ANALYSIS_MAX_EXTRACTED_FILES
     max_bytes = settings.ANALYSIS_MAX_EXTRACTED_BYTES
+    max_entries = int(getattr(settings, 'ANALYSIS_MAX_ZIP_ENTRIES', 2000))
     max_depth = int(getattr(settings, 'ANALYSIS_MAX_ZIP_PATH_DEPTH', 12))
     max_compression_ratio = float(getattr(settings, 'ANALYSIS_MAX_ZIP_COMPRESSION_RATIO', 100.0))
     max_entry_bytes = int(getattr(settings, 'ANALYSIS_MAX_ZIP_ENTRY_BYTES', max_bytes))
 
     extracted_count = 0
     extracted_size = 0
+    processed_entries = 0
     with zipfile.ZipFile(zip_path, 'r') as archive:
         for member in archive.infolist():
+            processed_entries += 1
+            if processed_entries > max_entries:
+                raise RuntimeError('ZIP inválido: excede el número máximo de entradas permitidas.')
             if member.is_dir():
                 continue
             if _is_unsafe_zip_member(member):
                 raise RuntimeError('ZIP inválido: contiene entradas no permitidas (enlace/sistema).')
-            member_path = PurePosixPath(member.filename)
-            if member_path.is_absolute() or '..' in member_path.parts:
-                raise RuntimeError('ZIP inválido: ruta insegura detectada.')
+            member_path = _normalize_zip_member_path(member.filename)
             clean_parts = [part for part in member_path.parts if part and part != '.']
+            if _has_unsafe_path_parts(clean_parts):
+                raise RuntimeError('ZIP inválido: ruta insegura detectada.')
             if len(clean_parts) > max_depth:
                 raise RuntimeError('ZIP inválido: la profundidad de rutas excede el máximo permitido.')
+            if member_path.suffix.lower() == '.zip':
+                raise RuntimeError('ZIP inválido: no se permiten archivos ZIP anidados.')
             if member_path.suffix.lower() != '.java':
                 continue
             if member.file_size > max_entry_bytes:
@@ -175,7 +182,7 @@ def _extract_zip(zip_path: Path, target_dir: Path) -> int:
             if len(content) != int(member.file_size):
                 raise RuntimeError('ZIP inválido: tamaño real de archivo no coincide con metadatos.')
 
-            destination = target_dir / Path(member.filename)
+            destination = _safe_destination_path(target_dir, clean_parts)
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(content)
 
@@ -197,6 +204,34 @@ def _compression_ratio(member: zipfile.ZipInfo) -> float:
     if compressed_size <= 0:
         return float('inf')
     return file_size / compressed_size
+
+
+def _normalize_zip_member_path(raw_name: str) -> PurePosixPath:
+    # Normaliza separadores Windows y limpia espacios para evitar bypasses.
+    normalized_name = str(raw_name or '').replace('\\', '/').strip()
+    return PurePosixPath(normalized_name)
+
+
+def _has_unsafe_path_parts(parts: list[str]) -> bool:
+    if not parts:
+        return True
+    for part in parts:
+        if part in ('', '.', '..'):
+            return True
+        if ':' in part:
+            return True
+    return False
+
+
+def _safe_destination_path(target_dir: Path, clean_parts: list[str]) -> Path:
+    destination = target_dir.joinpath(*clean_parts)
+    resolved_target = target_dir.resolve()
+    resolved_destination = destination.resolve()
+    try:
+        resolved_destination.relative_to(resolved_target)
+    except ValueError:
+        raise RuntimeError('ZIP inválido: ruta insegura detectada.')
+    return destination
 
 
 def _normalize_file_path(raw_path: str) -> str:

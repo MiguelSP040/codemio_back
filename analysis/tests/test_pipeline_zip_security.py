@@ -91,3 +91,66 @@ class PipelineZipSecurityTests(SimpleTestCase):
             with self.assertRaises(RuntimeError) as exc:
                 _extract_zip(zip_path, target_dir)
             self.assertIn('enlace/sistema', str(exc.exception))
+
+    @override_settings(
+        ANALYSIS_MAX_EXTRACTED_FILES=20,
+        ANALYSIS_MAX_EXTRACTED_BYTES=1024 * 1024,
+        ANALYSIS_MAX_ZIP_PATH_DEPTH=8,
+        ANALYSIS_MAX_ZIP_COMPRESSION_RATIO=50.0,
+        ANALYSIS_MAX_ZIP_ENTRY_BYTES=1024 * 256,
+        ANALYSIS_MAX_ZIP_ENTRIES=10,
+    )
+    def test_extract_zip_rejects_nested_zip_entries(self):
+        with TemporaryDirectory() as temp_dir:
+            zip_path = Path(temp_dir) / 'nested.zip'
+            target_dir = Path(temp_dir) / 'out'
+            target_dir.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr('src/Main.java', 'class Main {}')
+                zf.writestr('src/evil.zip', b'PK\x03\x04fake')
+
+            with self.assertRaises(RuntimeError) as exc:
+                _extract_zip(zip_path, target_dir)
+            self.assertIn('ZIP anidados', str(exc.exception))
+
+    @override_settings(
+        ANALYSIS_MAX_EXTRACTED_FILES=20,
+        ANALYSIS_MAX_EXTRACTED_BYTES=1024 * 1024,
+        ANALYSIS_MAX_ZIP_PATH_DEPTH=8,
+        ANALYSIS_MAX_ZIP_COMPRESSION_RATIO=50.0,
+        ANALYSIS_MAX_ZIP_ENTRY_BYTES=1024 * 256,
+        ANALYSIS_MAX_ZIP_ENTRIES=2,
+    )
+    def test_extract_zip_rejects_too_many_entries(self):
+        with TemporaryDirectory() as temp_dir:
+            zip_path = Path(temp_dir) / 'many.zip'
+            target_dir = Path(temp_dir) / 'out'
+            target_dir.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr('src/Main.java', 'class Main {}')
+                zf.writestr('src/Utils.java', 'class Utils {}')
+                zf.writestr('src/Extra.java', 'class Extra {}')
+
+            with self.assertRaises(RuntimeError) as exc:
+                _extract_zip(zip_path, target_dir)
+            self.assertIn('máximo de entradas', str(exc.exception))
+
+    @override_settings(
+        ANALYSIS_MAX_EXTRACTED_FILES=20,
+        ANALYSIS_MAX_EXTRACTED_BYTES=1024 * 1024,
+        ANALYSIS_MAX_ZIP_PATH_DEPTH=8,
+        ANALYSIS_MAX_ZIP_COMPRESSION_RATIO=50.0,
+        ANALYSIS_MAX_ZIP_ENTRY_BYTES=1024 * 256,
+        ANALYSIS_MAX_ZIP_ENTRIES=20,
+    )
+    def test_extract_zip_rejects_windows_style_path_traversal(self):
+        with TemporaryDirectory() as temp_dir:
+            zip_path = Path(temp_dir) / 'traversal.zip'
+            target_dir = Path(temp_dir) / 'out'
+            target_dir.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr(r'..\..\Windows\system32\evil.java', 'class Evil {}')
+
+            with self.assertRaises(RuntimeError) as exc:
+                _extract_zip(zip_path, target_dir)
+            self.assertIn('ruta insegura', str(exc.exception))
