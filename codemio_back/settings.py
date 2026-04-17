@@ -206,14 +206,9 @@ REST_FRAMEWORK = {
         'auth_forgot_password': '5/min',
         'auth_forgot_validate': '10/min',
         'auth_confirm_forgot': '5/min',
+        'analysis_runs': '20/min',
     },
 }
-
-# Validaciones de perfil (usuarios) — fijas (no por entorno)
-PROFILE_NAME_MIN_LEN = 2
-PROFILE_NAME_MAX_LEN = 100
-PROFILE_AGE_MIN = 1
-PROFILE_AGE_MAX = 120
 
 AWS_ACCESS_KEY_ID = config('AWS_ACCESS_KEY_ID', default='')
 AWS_SECRET_ACCESS_KEY = config('AWS_SECRET_ACCESS_KEY', default='')
@@ -231,10 +226,17 @@ ANALYSIS_MAX_UPLOAD_BYTES = config('ANALYSIS_MAX_UPLOAD_BYTES', default=10485760
 ANALYSIS_MAX_EXTRACTED_BYTES = config('ANALYSIS_MAX_EXTRACTED_BYTES', default=31457280, cast=int)
 ANALYSIS_MAX_EXTRACTED_FILES = config('ANALYSIS_MAX_EXTRACTED_FILES', default=500, cast=int)
 ANALYSIS_TOOL_TIMEOUT_SECONDS = config('ANALYSIS_TOOL_TIMEOUT_SECONDS', default=120, cast=int)
-ANALYSIS_PMD_COMMAND = config('ANALYSIS_PMD_COMMAND', default='pmd')
-ANALYSIS_PMD_RULESET = config(
-    'ANALYSIS_PMD_RULESET',
-    default='category/java/bestpractices.xml,category/java/errorprone.xml',
-)
-ANALYSIS_SPOTBUGS_COMMAND = config('ANALYSIS_SPOTBUGS_COMMAND', default='spotbugs')
-ANALYSIS_JAVAC_COMMAND = config('ANALYSIS_JAVAC_COMMAND', default='javac')
+ANALYSIS_WORKERS = config('ANALYSIS_WORKERS', default=2, cast=int)
+ANALYSIS_GATE_MAX_SECURITY_RATING = config('ANALYSIS_GATE_MAX_SECURITY_RATING', default=1, cast=int)
+ANALYSIS_GATE_MAX_RELIABILITY_RATING = config('ANALYSIS_GATE_MAX_RELIABILITY_RATING', default=1, cast=int)
+ANALYSIS_GATE_MAX_MAINTAINABILITY_RATING = config('ANALYSIS_GATE_MAX_MAINTAINABILITY_RATING', default=2, cast=int)
+ANALYSIS_GATE_WARN_CODE_SMELLS_THRESHOLD = config('ANALYSIS_GATE_WARN_CODE_SMELLS_THRESHOLD', default=20, cast=int)
+ANALYSIS_GATE_WARN_MIN_COVERAGE = config('ANALYSIS_GATE_WARN_MIN_COVERAGE', default=60.0, cast=float)
+
+SONAR_HOST_URL = config('SONAR_HOST_URL', default='https://sonarcloud.io')
+SONAR_TOKEN = config('SONAR_TOKEN', default='')
+SONAR_ORGANIZATION = config('SONAR_ORGANIZATION', default='')
+SONAR_SCANNER_COMMAND = config('SONAR_SCANNER_COMMAND', default='sonar-scanner')
+SONAR_RUNTIME_PROJECT_PREFIX = config('SONAR_RUNTIME_PROJECT_PREFIX', default='codemio-runtime')
+SONAR_QUALITYGATE_TIMEOUT_SECONDS = config('SONAR_QUALITYGATE_TIMEOUT_SECONDS', default=180, cast=int)
+SONAR_API_TIMEOUT_SECONDS = config('SONAR_API_TIMEOUT_SECONDS', default=30, cast=int)

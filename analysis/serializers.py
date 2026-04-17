@@ -10,7 +10,21 @@ from projects.models import Project, ProjectState
 class AnalysisFindingSerializer(serializers.ModelSerializer):
     class Meta:
         model = AnalysisFinding
-        fields = ('id', 'tool', 'severity', 'rule', 'file_path', 'line', 'message', 'message_es', 'created_at')
+        fields = (
+            'id',
+            'tool',
+            'severity',
+            'finding_type',
+            'rule',
+            'issue_key',
+            'issue_status',
+            'file_path',
+            'line',
+            'message',
+            'message_es',
+            'effort_minutes',
+            'created_at',
+        )
         read_only_fields = fields
 
 
@@ -18,6 +32,24 @@ class AnalysisRunSerializer(serializers.ModelSerializer):
     project_id = serializers.IntegerField(read_only=True)
     user_id = serializers.IntegerField(read_only=True)
     findings = AnalysisFindingSerializer(many=True, read_only=True)
+    metrics = serializers.SerializerMethodField()
+
+    def get_metrics(self, obj: AnalysisRun) -> dict:
+        return {
+            'quality_gate_status': obj.quality_gate_status,
+            'bugs': obj.bugs,
+            'vulnerabilities': obj.vulnerabilities,
+            'code_smells': obj.code_smells,
+            'complexity': obj.complexity,
+            'duplicated_lines_density': obj.duplicated_lines_density,
+            'duplicated_lines': obj.duplicated_lines,
+            'coverage': obj.coverage,
+            'lines_to_cover': obj.lines_to_cover,
+            'ncloc': obj.ncloc,
+            'reliability_rating': obj.reliability_rating,
+            'security_rating': obj.security_rating,
+            'maintainability_rating': obj.maintainability_rating,
+        }
 
     class Meta:
         model = AnalysisRun
@@ -29,6 +61,20 @@ class AnalysisRunSerializer(serializers.ModelSerializer):
             'input_type',
             'original_filename',
             'source_sha256',
+            'sonar_project_key',
+            'quality_gate_status',
+            'bugs',
+            'vulnerabilities',
+            'code_smells',
+            'complexity',
+            'duplicated_lines_density',
+            'duplicated_lines',
+            'coverage',
+            'lines_to_cover',
+            'ncloc',
+            'reliability_rating',
+            'security_rating',
+            'maintainability_rating',
             'total_files_analyzed',
             'findings_count',
             'error_summary',
@@ -37,6 +83,7 @@ class AnalysisRunSerializer(serializers.ModelSerializer):
             'started_at',
             'finished_at',
             'findings',
+            'metrics',
         )
         read_only_fields = fields
 
@@ -60,6 +107,13 @@ class AnalysisRunCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError('Solo se permiten archivos .java o .zip.')
         if value.size > settings.ANALYSIS_MAX_UPLOAD_BYTES:
             raise serializers.ValidationError('El archivo excede el tamaño máximo permitido.')
+        try:
+            head = value.read(4)
+            value.seek(0)
+        except Exception:
+            head = b''
+        if ext == '.zip' and head[:2] != b'PK':
+            raise serializers.ValidationError('El archivo ZIP no tiene una firma válida.')
         return value
 
     def create(self, validated_data):

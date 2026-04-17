@@ -64,6 +64,17 @@ class AnalysisRunsApiTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('source_file', response.data)
 
+    def test_create_run_rejects_invalid_zip_signature(self):
+        self.client.force_authenticate(user=CognitoPrincipal(self.owner))
+        uploaded = SimpleUploadedFile('demo.zip', b'not-a-real-zip', content_type='application/zip')
+        response = self.client.post(
+            '/analysis/runs/',
+            {'project_id': self.owner_project.id, 'source_file': uploaded},
+            format='multipart',
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('source_file', response.data)
+
     def test_create_run_rejects_foreign_project(self):
         self.client.force_authenticate(user=CognitoPrincipal(self.owner))
         uploaded = SimpleUploadedFile('demo.java', b'class Demo {}', content_type='text/plain')

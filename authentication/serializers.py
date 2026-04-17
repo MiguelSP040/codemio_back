@@ -1,5 +1,4 @@
 from rest_framework import serializers
-from django.conf import settings
 import bleach
 import re
 from authentication.models import Usuario
@@ -9,12 +8,15 @@ _GITHUB_URL_RE = re.compile(r'^https:\/\/github\.com\/[\w.-]+\/?$')
 _GITHUB_USERNAME_RE = re.compile(r'^[\w.-]{1,39}$')
 _HAS_HTML_TAG_RE = re.compile(r'<\s*\/?\s*[a-zA-Z][^>]*>')
 _CONTROL_CHARS_RE = re.compile(r'[\x00-\x1F\x7F]')
+# Límites funcionales fijos de perfil (no dependen de variables de entorno).
+PROFILE_NAME_MIN_LEN = 2
+PROFILE_NAME_MAX_LEN = 100
+PROFILE_AGE_MIN = 1
+PROFILE_AGE_MAX = 120
 
 
 def _clean_text(value: str) -> str:
-    """
-    Sanitiza texto para minimizar XSS (no aplica a HTML intencional).
-    """
+
     cleaned = bleach.clean(str(value), tags=[], attributes={}, protocols=[], strip=True)
     cleaned = _CONTROL_CHARS_RE.sub('', cleaned)
     return cleaned.strip()
@@ -30,24 +32,24 @@ def _validate_nombre(value: str | None) -> str | None:
     cleaned = _clean_text(value)
     if cleaned == '':
         return None
-    min_len = int(getattr(settings, 'PROFILE_NAME_MIN_LEN', 2))
-    max_len = int(getattr(settings, 'PROFILE_NAME_MAX_LEN', 100))
-    if len(cleaned) < min_len:
-        raise serializers.ValidationError(f'El nombre debe tener al menos {min_len} caracteres.')
-    if len(cleaned) > max_len:
-        raise serializers.ValidationError(f'El nombre no puede exceder {max_len} caracteres.')
+    if len(cleaned) < PROFILE_NAME_MIN_LEN:
+        raise serializers.ValidationError(
+            f'El nombre debe tener al menos {PROFILE_NAME_MIN_LEN} caracteres.'
+        )
+    if len(cleaned) > PROFILE_NAME_MAX_LEN:
+        raise serializers.ValidationError(
+            f'El nombre no puede exceder {PROFILE_NAME_MAX_LEN} caracteres.'
+        )
     return cleaned
 
 
 def _validate_edad(value: int | None) -> int | None:
     if value is None:
         return None
-    min_age = int(getattr(settings, 'PROFILE_AGE_MIN', 1))
-    max_age = int(getattr(settings, 'PROFILE_AGE_MAX', 120))
-    if value < min_age:
-        raise serializers.ValidationError(f'La edad debe ser mayor o igual a {min_age}.')
-    if value > max_age:
-        raise serializers.ValidationError(f'La edad no puede ser mayor a {max_age}.')
+    if value < PROFILE_AGE_MIN:
+        raise serializers.ValidationError(f'La edad debe ser mayor o igual a {PROFILE_AGE_MIN}.')
+    if value > PROFILE_AGE_MAX:
+        raise serializers.ValidationError(f'La edad no puede ser mayor a {PROFILE_AGE_MAX}.')
     return value
 
 

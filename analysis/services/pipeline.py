@@ -6,13 +6,10 @@ from tempfile import TemporaryDirectory
 import zipfile
 from django.conf import settings
 from analysis.models import AnalysisFinding, AnalysisInputType, AnalysisRun, AnalysisRunStatus
-from analysis.services.message_catalog import get_message_es
-from analysis.services.pmd_analyzer import PmdAnalyzer
-from analysis.services.spotbugs_analyzer import SpotBugsAnalyzer
-from analysis.services.types import NormalizedFinding
+from analysis.services.sonar_runtime_service import run_sonar_analysis
 
 
-_EXECUTOR = ThreadPoolExecutor(max_workers=2)
+_EXECUTOR = ThreadPoolExecutor(max_workers=int(getattr(settings, 'ANALYSIS_WORKERS', 2)))
 
 
 def start_analysis_run(
@@ -60,10 +57,15 @@ def _execute_analysis_run(
                 target.write_bytes(source_bytes)
                 total_files = 1
 
-            findings: list[NormalizedFinding] = []
-            analyzers = [PmdAnalyzer(), SpotBugsAnalyzer()]
-            for analyzer in analyzers:
-                findings.extend(analyzer.analyze(source_dir=source_dir, workspace_dir=workspace_dir))
+            project_prefix = str(getattr(settings, 'SONAR_RUNTIME_PROJECT_PREFIX', 'codemio-runtime')).strip()
+            sonar_project_key = f'{project_prefix}-{run.id}'
+            sonar_result = run_sonar_analysis(
+                source_dir=source_dir,
+                workspace_dir=workspace_dir,
+                project_key=sonar_project_key,
+                source_name=source_name,
+            )
+            findings = sonar_result.findings
 
             AnalysisFinding.objects.filter(run=run).delete()
             AnalysisFinding.objects.bulk_create(
@@ -73,24 +75,59 @@ def _execute_analysis_run(
                         tool=finding.tool,
                         severity=finding.severity,
                         rule=finding.rule,
+                        issue_key=finding.issue_key,
+                        issue_status=finding.issue_status,
                         file_path=_normalize_file_path(finding.file_path),
                         line=finding.line,
                         message=finding.message,
-                        message_es=get_message_es(
-                            tool=finding.tool,
-                            rule=finding.rule,
-                            default_message=finding.message,
-                        ),
+                        message_es=finding.message,
+                        finding_type=finding.finding_type,
+                        effort_minutes=finding.effort_minutes,
                     )
                     for finding in findings
                 ]
             )
 
             run.status = AnalysisRunStatus.DONE
+            run.sonar_project_key = sonar_project_key
+            run.quality_gate_status = sonar_result.metrics.quality_gate_status
+            run.bugs = sonar_result.metrics.bugs
+            run.vulnerabilities = sonar_result.metrics.vulnerabilities
+            run.code_smells = sonar_result.metrics.code_smells
+            run.complexity = sonar_result.metrics.complexity
+            run.duplicated_lines_density = sonar_result.metrics.duplicated_lines_density
+            run.duplicated_lines = sonar_result.metrics.duplicated_lines
+            run.coverage = sonar_result.metrics.coverage
+            run.lines_to_cover = sonar_result.metrics.lines_to_cover
+            run.ncloc = sonar_result.metrics.ncloc
+            run.reliability_rating = sonar_result.metrics.reliability_rating
+            run.security_rating = sonar_result.metrics.security_rating
+            run.maintainability_rating = sonar_result.metrics.maintainability_rating
             run.total_files_analyzed = total_files
             run.findings_count = len(findings)
             run.finished_at = datetime.now(timezone.utc)
-            run.save(update_fields=['status', 'total_files_analyzed', 'findings_count', 'finished_at'])
+            run.save(
+                update_fields=[
+                    'status',
+                    'sonar_project_key',
+                    'quality_gate_status',
+                    'bugs',
+                    'vulnerabilities',
+                    'code_smells',
+                    'complexity',
+                    'duplicated_lines_density',
+                    'duplicated_lines',
+                    'coverage',
+                    'lines_to_cover',
+                    'ncloc',
+                    'reliability_rating',
+                    'security_rating',
+                    'maintainability_rating',
+                    'total_files_analyzed',
+                    'findings_count',
+                    'finished_at',
+                ]
+            )
     except Exception as exc:
         run.status = AnalysisRunStatus.FAILED
         run.finished_at = datetime.now(timezone.utc)

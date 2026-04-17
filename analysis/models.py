@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Q
 from authentication.models import Usuario
 from projects.models import Project
 
@@ -38,6 +39,20 @@ class AnalysisRun(models.Model):
     input_type = models.CharField(max_length=10, choices=AnalysisInputType.choices)
     original_filename = models.CharField(max_length=255)
     source_sha256 = models.CharField(max_length=64, blank=True, default='')
+    sonar_project_key = models.CharField(max_length=255, blank=True, default='')
+    quality_gate_status = models.CharField(max_length=20, blank=True, default='')
+    bugs = models.PositiveIntegerField(default=0)
+    vulnerabilities = models.PositiveIntegerField(default=0)
+    code_smells = models.PositiveIntegerField(default=0)
+    complexity = models.PositiveIntegerField(default=0)
+    duplicated_lines_density = models.FloatField(default=0.0)
+    duplicated_lines = models.PositiveIntegerField(default=0)
+    coverage = models.FloatField(default=0.0)
+    lines_to_cover = models.PositiveIntegerField(default=0)
+    ncloc = models.PositiveIntegerField(default=0)
+    reliability_rating = models.PositiveSmallIntegerField(default=0)
+    security_rating = models.PositiveSmallIntegerField(default=0)
+    maintainability_rating = models.PositiveSmallIntegerField(default=0)
     total_files_analyzed = models.PositiveIntegerField(default=0)
     findings_count = models.PositiveIntegerField(default=0)
     error_summary = models.CharField(max_length=255, blank=True, default='')
@@ -63,11 +78,26 @@ class AnalysisFinding(models.Model):
     tool = models.CharField(max_length=30, db_index=True)
     severity = models.CharField(max_length=20, db_index=True)
     rule = models.CharField(max_length=180, blank=True, default='')
+    issue_key = models.CharField(max_length=120, blank=True, default='', db_index=True)
+    issue_status = models.CharField(max_length=30, blank=True, default='')
     file_path = models.CharField(max_length=500, blank=True, default='')
     line = models.PositiveIntegerField(null=True, blank=True)
     message = models.TextField()
     message_es = models.TextField(blank=True, default='')
+    finding_type = models.CharField(max_length=40, blank=True, default='')
+    effort_minutes = models.PositiveIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ['id']
+        indexes = [
+            models.Index(fields=['run', 'severity']),
+            models.Index(fields=['run', 'tool']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['run', 'issue_key'],
+                condition=~Q(issue_key=''),
+                name='analysis_unique_issue_key_per_run',
+            ),
+        ]

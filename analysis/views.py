@@ -6,12 +6,15 @@ from rest_framework.response import Response
 from authentication.cognito_jwt_authentication import CognitoJWTAuthentication
 from analysis.models import AnalysisRun
 from analysis.serializers import AnalysisRunCreateSerializer, AnalysisRunSerializer
+from analysis.throttles import AnalysisScopedRateThrottle
 
 
 class AnalysisRunListCreateView(ListCreateAPIView):
     authentication_classes = [CognitoJWTAuthentication]
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
+    throttle_classes = [AnalysisScopedRateThrottle]
+    throttle_scope = 'analysis_runs'
 
     def get_queryset(self):
         queryset = AnalysisRun.objects.filter(user=self.request.user.usuario).select_related('project', 'user')
