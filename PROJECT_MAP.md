@@ -22,7 +22,7 @@ graph TB
     end
     
     subgraph "Persistencia"
-        DB[(PostgreSQL<br/>Base de Datos)]
+        DB[(MySQL<br/>Base de Datos)]
         MEDIA[Media Storage<br/>Archivos .java/.zip]
     end
     
@@ -257,7 +257,7 @@ flowchart TB
     subgraph "GitHub Actions - Job: Test"
         CHECKOUT1[Checkout código]
         SETUP1[Setup Python 3.12]
-        POSTGRES[Iniciar PostgreSQL]
+        MYSQL[Iniciar MySQL]
         INSTALL1[Instalar dependencias]
         FLAKE[Ejecutar flake8]
         MIGRATE[Ejecutar migraciones]
@@ -282,8 +282,8 @@ flowchart TB
     PR --> CHECKOUT1
     
     CHECKOUT1 --> SETUP1
-    SETUP1 --> POSTGRES
-    POSTGRES --> INSTALL1
+    SETUP1 --> MYSQL
+    MYSQL --> INSTALL1
     INSTALL1 --> FLAKE
     FLAKE --> MIGRATE
     MIGRATE --> TEST
@@ -405,8 +405,8 @@ graph TB
 graph TB
     subgraph "Docker Compose - Desarrollo Local"
         WEB[Web Service<br/>Django App<br/>:8000]
-        DB[PostgreSQL Service<br/>:5432]
-        VOL[Volumen<br/>postgres_data]
+        DB[MySQL Service<br/>:3306]
+        VOL[Volumen<br/>mysql_data]
     end
     
     subgraph "Dockerfile - Producción"
@@ -442,7 +442,7 @@ graph LR
     end
     
     subgraph "Base de Datos"
-        PSYCO[psycopg2-binary]
+        PYMYSQL[PyMySQL]
         DBURL[dj-database-url]
     end
     
@@ -465,7 +465,7 @@ graph LR
     end
     
     DJANGO --> DRF
-    DJANGO --> PSYCO
+    DJANGO --> PYMYSQL
     DJANGO --> CORS
     DRF --> DJANGO
     
@@ -522,20 +522,20 @@ graph TD
     ENV --> SECRET[SECRET_KEY<br/>Django Secret]
     ENV --> DEBUG[DEBUG<br/>True/False]
     ENV --> HOSTS[ALLOWED_HOSTS<br/>CSV List]
-    ENV --> DBURL[DATABASE_URL<br/>PostgreSQL URL]
+    ENV --> DBURL[DATABASE_URL<br/>MySQL URL]
     ENV --> CORS[CORS_ALLOWED_ORIGINS<br/>Frontend URLs]
     ENV --> PORT[PORT<br/>8000]
     
     SECRET --> DJANGO[Django App]
     DEBUG --> DJANGO
     HOSTS --> DJANGO
-    DBURL --> POSTGRES[(PostgreSQL)]
+    DBURL --> MYSQL_DB[(MySQL)]
     CORS --> MIDDLEWARE[CORS Middleware]
     PORT --> GUNICORN[Gunicorn Server]
     
     style ENV fill:#FFC107
     style DJANGO fill:#092E20
-    style POSTGRES fill:#316192
+    style MYSQL_DB fill:#4479A1
 ```
 
 ---
