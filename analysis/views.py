@@ -5,7 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from authentication.cognito_jwt_authentication import CognitoJWTAuthentication
 from authentication.models import RolUsuario
-from analysis.models import AnalysisRun
+from analysis.models import AnalysisRun, AnalysisRunStatus
 from analysis.serializers import AnalysisRunCreateSerializer, AnalysisRunSerializer
 from analysis.throttles import AnalysisScopedRateThrottle
 
@@ -28,6 +28,9 @@ class AnalysisRunListCreateView(ListCreateAPIView):
         project_id = self.request.query_params.get('project_id')
         if project_id:
             queryset = queryset.filter(project_id=project_id)
+        status_value = str(self.request.query_params.get('status') or '').upper().strip()
+        if status_value in AnalysisRunStatus.values:
+            queryset = queryset.filter(status=status_value)
         return queryset
 
     def get_serializer_class(self):

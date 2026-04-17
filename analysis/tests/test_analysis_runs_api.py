@@ -122,6 +122,28 @@ class AnalysisRunsApiTests(TestCase):
         response = self.client.get(f'/analysis/runs/{foreign_run.id}/')
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_list_runs_supports_status_filter(self):
+        done_run = AnalysisRun.objects.create(
+            project=self.owner_project,
+            user=self.owner,
+            status=AnalysisRunStatus.DONE,
+            input_type='java',
+            original_filename='done.java',
+        )
+        AnalysisRun.objects.create(
+            project=self.owner_project,
+            user=self.owner,
+            status=AnalysisRunStatus.FAILED,
+            input_type='java',
+            original_filename='failed.java',
+        )
+
+        self.client.force_authenticate(user=CognitoPrincipal(self.owner))
+        response = self.client.get('/analysis/runs/', {'status': 'DONE'})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['count'], 1)
+        self.assertEqual(response.data['results'][0]['id'], done_run.id)
+
     def test_admin_can_list_and_retrieve_foreign_runs(self):
         owner_run = AnalysisRun.objects.create(
             project=self.owner_project,

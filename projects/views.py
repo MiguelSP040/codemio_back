@@ -44,8 +44,25 @@ class ProjectDetailView(RetrieveUpdateDestroyAPIView):
             return queryset
         return queryset.filter(user=user)
 
+    def _is_admin_modifying_foreign_project(self, user, instance: Project) -> bool:
+        return user.rol == RolUsuario.ADMIN and instance.user_id != user.id
+
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if self._is_admin_modifying_foreign_project(request.user.usuario, instance):
+            return Response(
+                {'detail': 'Admin solo puede modificar sus propios proyectos.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return super().update(request, *args, **kwargs)
+
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
+        if self._is_admin_modifying_foreign_project(request.user.usuario, instance):
+            return Response(
+                {'detail': 'Admin solo puede eliminar sus propios proyectos.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         instance.state = ProjectState.DELETED
         instance.deleted_at = timezone.now()
         instance.save(update_fields=['state', 'deleted_at', 'updated_at'])

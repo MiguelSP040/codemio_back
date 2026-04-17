@@ -124,6 +124,35 @@ class ProjectsApiTests(TestCase):
         self.assertEqual(detail.status_code, status.HTTP_200_OK)
         self.assertEqual(detail.data['id'], foreign.id)
 
+    def test_admin_cannot_update_or_delete_foreign_project(self):
+        foreign = Project.objects.create(user=self.other_user, name='Foreign Project')
+        self.client.force_authenticate(user=CognitoPrincipal(self.admin_user))
+
+        update_response = self.client.patch(
+            f'/projects/{foreign.id}/',
+            {'name': 'Updated by admin'},
+            format='json',
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_403_FORBIDDEN)
+
+        delete_response = self.client.delete(f'/projects/{foreign.id}/')
+        self.assertEqual(delete_response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_can_update_and_delete_own_project(self):
+        own = Project.objects.create(user=self.admin_user, name='Admin Own Project')
+        self.client.force_authenticate(user=CognitoPrincipal(self.admin_user))
+
+        update_response = self.client.patch(
+            f'/projects/{own.id}/',
+            {'name': 'Admin Own Updated'},
+            format='json',
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(update_response.data['name'], 'Admin Own Updated')
+
+        delete_response = self.client.delete(f'/projects/{own.id}/')
+        self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
+
     def test_delete_project_is_logical(self):
         project = Project.objects.create(user=self.owner, name='Delete Me')
         self.client.force_authenticate(user=CognitoPrincipal(self.owner))
