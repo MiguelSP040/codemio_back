@@ -431,48 +431,48 @@ git fetch origin
 
 ---
 
-## 🗄️ PostgreSQL
+## 🗄️ MySQL
 
 ### Acceso Directo
 ```bash
-# Conectar a PostgreSQL local
-psql -U username -d database_name
+# Conectar a MySQL local
+mysql -u username -p database_name
 
 # Conectar con URL
-psql postgresql://user:password@localhost:5432/database
+mysql -h localhost -P 3306 -u user -p database
 
 # Listar bases de datos
-\l
+SHOW DATABASES;
 
-# Conectar a base de datos
-\c database_name
+# Usar base de datos
+USE database_name;
 
 # Listar tablas
-\dt
+SHOW TABLES;
 
 # Describir tabla
-\d table_name
+DESCRIBE table_name;
 
 # Ejecutar SQL desde archivo
-psql -U username -d database -f script.sql
+mysql -u username -p database < script.sql
 
 # Salir
-\q
+exit;
 ```
 
 ### Backup y Restore
 ```bash
 # Hacer backup
-pg_dump -U username database_name > backup.sql
+mysqldump -u username -p database_name > backup.sql
 
 # Restaurar backup
-psql -U username database_name < backup.sql
+mysql -u username -p database_name < backup.sql
 
 # Backup comprimido
-pg_dump -U username database_name | gzip > backup.sql.gz
+mysqldump -u username -p database_name | gzip > backup.sql.gz
 
 # Restaurar comprimido
-gunzip -c backup.sql.gz | psql -U username database_name
+gunzip -c backup.sql.gz | mysql -u username -p database_name
 ```
 
 ---
@@ -556,7 +556,7 @@ printenv
 echo $DATABASE_URL
 
 # Establecer variable temporalmente
-export DATABASE_URL="postgresql://..."
+export DATABASE_URL="mysql://..."
 
 # Establecer variable permanentemente (Linux/macOS)
 echo 'export DATABASE_URL="..."' >> ~/.bashrc
@@ -686,4 +686,4 @@ docker volume prune
 - [DRF Documentation](https://www.django-rest-framework.org/)
 - [Docker Documentation](https://docs.docker.com/)
 - [Render Documentation](https://render.com/docs)
-- [PostgreSQL Documentation](https://www.postgresql.org/docs/)
+- [MySQL Documentation](https://dev.mysql.com/doc/)
