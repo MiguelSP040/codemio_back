@@ -33,8 +33,8 @@ FROM dependencies as production
 # Copy project files
 COPY . .
 
-# Collect static files (if needed)
-RUN python manage.py collectstatic --noinput || true
+# Collect static files
+RUN python manage.py collectstatic --noinput
 
 # Expose the port that Render will provide
 EXPOSE ${PORT:-8000}

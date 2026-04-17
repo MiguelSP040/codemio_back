@@ -53,7 +53,7 @@ jobs:
 
     - name: Run migrations
       env:
-        DATABASE_URL: mysql://${{ secrets.CI_DB_USER }}:${{ secrets.CI_DB_PASSWORD }}@localhost:3306/${{ secrets.CI_DB_NAME }}
+        DATABASE_URL: mysql://root:${{ secrets.CI_DB_ROOT_PASSWORD }}@localhost:3306/${{ secrets.CI_DB_NAME }}
         SECRET_KEY: ${{ secrets.CI_SECRET_KEY }}
         DEBUG: ${{ vars.CI_DEBUG || 'True' }}
         ALLOWED_HOSTS: ${{ vars.CI_ALLOWED_HOSTS || 'localhost,127.0.0.1' }}
@@ -62,7 +62,7 @@ jobs:
 
     - name: Run tests
       env:
-        DATABASE_URL: mysql://${{ secrets.CI_DB_USER }}:${{ secrets.CI_DB_PASSWORD }}@localhost:3306/${{ secrets.CI_DB_NAME }}
+        DATABASE_URL: mysql://root:${{ secrets.CI_DB_ROOT_PASSWORD }}@localhost:3306/${{ secrets.CI_DB_NAME }}
         SECRET_KEY: ${{ secrets.CI_SECRET_KEY }}
         DEBUG: ${{ vars.CI_DEBUG || 'True' }}
         ALLOWED_HOSTS: ${{ vars.CI_ALLOWED_HOSTS || 'localhost,127.0.0.1' }}
@@ -77,7 +77,7 @@ jobs:
 
     - name: Generate coverage report
       env:
-        DATABASE_URL: mysql://${{ secrets.CI_DB_USER }}:${{ secrets.CI_DB_PASSWORD }}@localhost:3306/${{ secrets.CI_DB_NAME }}
+        DATABASE_URL: mysql://root:${{ secrets.CI_DB_ROOT_PASSWORD }}@localhost:3306/${{ secrets.CI_DB_NAME }}
         SECRET_KEY: ${{ secrets.CI_SECRET_KEY }}
         DEBUG: ${{ vars.CI_DEBUG || 'True' }}
         ALLOWED_HOSTS: ${{ vars.CI_ALLOWED_HOSTS || 'localhost,127.0.0.1' }}
