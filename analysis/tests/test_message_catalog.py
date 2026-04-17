@@ -28,3 +28,11 @@ class MessageCatalogTests(SimpleTestCase):
             default_message=default_message,
         )
         self.assertEqual(translated, default_message)
+
+    def test_returns_translated_message_for_new_spotbugs_rules(self):
+        translated = get_message_es(
+            tool='spotbugs',
+            rule='NP_ALWAYS_NULL',
+            default_message='Null pointer dereference',
+        )
+        self.assertEqual(translated, 'Posible desreferenciación de puntero nulo.')

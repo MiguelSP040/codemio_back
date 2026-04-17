@@ -17,7 +17,10 @@ SPOTBUGS_MESSAGE_ES_BY_RULE = {
     'DM_DEFAULT_ENCODING': 'Se depende de la codificación por defecto del sistema.',
     'DM_NUMBER_CTOR': 'Se invoca un constructor ineficiente de Number; usa valueOf().',
     'ES_COMPARING_PARAMETER_STRING_WITH_EQ': "Se compara un String usando '==' o '!='.",
+    'NP_ALWAYS_NULL': 'Posible desreferenciación de puntero nulo.',
     'NP_NULL_PARAM_DEREF_ALL_TARGETS_DANGEROUS': 'Se pasa null a un parámetro que no debería ser nulo.',
+    'OBL_UNSATISFIED_OBLIGATION': 'El método podría no liberar correctamente un recurso o stream.',
+    'OS_OPEN_STREAM': 'El método podría no cerrar correctamente un stream abierto.',
     'RV_RETURN_VALUE_IGNORED_NO_SIDE_EFFECT': 'Se ignora el valor de retorno de un método sin efectos secundarios.',
     'UUF_UNUSED_PUBLIC_OR_PROTECTED_FIELD': 'Campo público o protegido sin uso.',
 }

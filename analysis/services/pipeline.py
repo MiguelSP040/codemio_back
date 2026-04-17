@@ -2,6 +2,7 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
+import stat
 from tempfile import TemporaryDirectory
 import zipfile
 from django.conf import settings
@@ -13,6 +14,7 @@ from analysis.services.types import NormalizedFinding
 
 
 _EXECUTOR = ThreadPoolExecutor(max_workers=2)
+_IGNORED_ZIP_BASENAMES = {'thumbs.db', 'desktop.ini', '.ds_store', 'icon\r'}
 
 
 def start_analysis_run(
@@ -102,9 +104,12 @@ def _execute_analysis_run(
 def _extract_zip(zip_path: Path, target_dir: Path) -> int:
     max_files = settings.ANALYSIS_MAX_EXTRACTED_FILES
     max_bytes = settings.ANALYSIS_MAX_EXTRACTED_BYTES
+    max_file_bytes = settings.ANALYSIS_MAX_EXTRACTED_FILE_BYTES
+    max_compression_ratio = settings.ANALYSIS_MAX_COMPRESSION_RATIO
 
     extracted_count = 0
     extracted_size = 0
+    extracted_targets: set[str] = set()
     with zipfile.ZipFile(zip_path, 'r') as archive:
         for member in archive.infolist():
             if member.is_dir():
@@ -112,24 +117,67 @@ def _extract_zip(zip_path: Path, target_dir: Path) -> int:
             member_path = PurePosixPath(member.filename)
             if member_path.is_absolute() or '..' in member_path.parts:
                 raise RuntimeError('ZIP inválido: ruta insegura detectada.')
+            if _is_zip_symlink(member):
+                raise RuntimeError('ZIP inválido: enlaces simbólicos no permitidos.')
+            if _should_skip_zip_member(member_path):
+                continue
             if member_path.suffix.lower() != '.java':
                 continue
+            if member.file_size > max_file_bytes:
+                raise RuntimeError('ZIP contiene archivos que exceden el tamaño máximo por archivo.')
+            if _compression_ratio_exceeded(member, max_compression_ratio):
+                raise RuntimeError('ZIP inválido: se detectó una relación de compresión sospechosa.')
+
+            destination = target_dir.joinpath(*member_path.parts)
+            destination_key = str(destination.relative_to(target_dir)).lower()
+            if destination_key in extracted_targets:
+                raise RuntimeError('ZIP inválido: rutas duplicadas detectadas.')
+            extracted_targets.add(destination_key)
+
             extracted_count += 1
             if extracted_count > max_files:
                 raise RuntimeError('ZIP excede el número máximo de archivos permitidos.')
 
             content = archive.read(member)
+            try:
+                content.decode('utf-8-sig')
+            except UnicodeDecodeError as exc:
+                raise RuntimeError('ZIP contiene archivos .java que no son UTF-8 válidos.') from exc
             extracted_size += len(content)
             if extracted_size > max_bytes:
                 raise RuntimeError('ZIP excede el tamaño máximo permitido para extracción.')
 
-            destination = target_dir / Path(member.filename)
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(content)
 
     if extracted_count == 0:
         raise RuntimeError('No se encontraron archivos .java en el ZIP.')
     return extracted_count
+
+
+def _should_skip_zip_member(member_path: PurePosixPath) -> bool:
+    if '__MACOSX' in member_path.parts:
+        return True
+    filename = member_path.name.lower()
+    if filename in _IGNORED_ZIP_BASENAMES:
+        return True
+    if filename.startswith(('._', '~$', '.')):
+        return True
+    return False
+
+
+def _is_zip_symlink(member: zipfile.ZipInfo) -> bool:
+    mode = (member.external_attr >> 16) & 0xFFFF
+    return stat.S_ISLNK(mode)
+
+
+def _compression_ratio_exceeded(member: zipfile.ZipInfo, max_ratio: int) -> bool:
+    if member.file_size <= 0:
+        return False
+    if member.compress_size <= 0:
+        return True
+    ratio = member.file_size / member.compress_size
+    return ratio > max_ratio
 
 
 def _normalize_file_path(raw_path: str) -> str:
