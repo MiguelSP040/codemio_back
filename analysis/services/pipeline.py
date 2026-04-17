@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 import stat
+from threading import BoundedSemaphore
 from tempfile import TemporaryDirectory
 import zipfile
 from django.conf import settings
@@ -11,6 +12,8 @@ from analysis.services.sonar_runtime_service import run_sonar_analysis
 
 
 _EXECUTOR = ThreadPoolExecutor(max_workers=int(getattr(settings, 'ANALYSIS_WORKERS', 2)))
+_MAX_INFLIGHT_TASKS = max(int(getattr(settings, 'ANALYSIS_MAX_INFLIGHT_TASKS', 50)), 1)
+_INFLIGHT_SEMAPHORE = BoundedSemaphore(value=_MAX_INFLIGHT_TASKS)
 
 
 def start_analysis_run(
@@ -20,13 +23,37 @@ def start_analysis_run(
     source_bytes: bytes,
     input_type: str,
 ) -> None:
-    _EXECUTOR.submit(
-        _execute_analysis_run,
-        run_id,
-        source_name,
-        source_bytes,
-        input_type,
-    )
+    if not _INFLIGHT_SEMAPHORE.acquire(blocking=False):
+        run = AnalysisRun.objects.get(pk=run_id)
+        run.status = AnalysisRunStatus.FAILED
+        run.finished_at = datetime.now(timezone.utc)
+        run.error_summary = 'Cola de análisis saturada. Intenta nuevamente en unos minutos.'
+        run.error_detail = 'analysis_queue_overloaded'
+        run.save(update_fields=['status', 'finished_at', 'error_summary', 'error_detail'])
+        return
+    try:
+        _EXECUTOR.submit(
+            _execute_analysis_run_guarded,
+            run_id,
+            source_name,
+            source_bytes,
+            input_type,
+        )
+    except Exception:
+        _INFLIGHT_SEMAPHORE.release()
+        raise
+
+
+def _execute_analysis_run_guarded(
+    run_id: int,
+    source_name: str,
+    source_bytes: bytes,
+    input_type: str,
+) -> None:
+    try:
+        _execute_analysis_run(run_id, source_name, source_bytes, input_type)
+    finally:
+        _INFLIGHT_SEMAPHORE.release()
 
 
 def _execute_analysis_run(
