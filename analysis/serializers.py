@@ -17,6 +17,7 @@ class AnalysisFindingSerializer(serializers.ModelSerializer):
 class AnalysisRunSerializer(serializers.ModelSerializer):
     project_id = serializers.IntegerField(read_only=True)
     user_id = serializers.IntegerField(read_only=True)
+    error_detail = serializers.SerializerMethodField()
     findings = AnalysisFindingSerializer(many=True, read_only=True)
 
     class Meta:
@@ -40,6 +41,11 @@ class AnalysisRunSerializer(serializers.ModelSerializer):
         )
         read_only_fields = fields
 
+    def get_error_detail(self, obj: AnalysisRun) -> str:
+        if settings.DEBUG:
+            return obj.error_detail
+        return ''
+
 
 class AnalysisRunCreateSerializer(serializers.Serializer):
     project_id = serializers.IntegerField()
@@ -60,6 +66,14 @@ class AnalysisRunCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError('Solo se permiten archivos .java o .zip.')
         if value.size > settings.ANALYSIS_MAX_UPLOAD_BYTES:
             raise serializers.ValidationError('El archivo excede el tamaño máximo permitido.')
+        if ext == '.java':
+            value.seek(0)
+            raw = value.read()
+            value.seek(0)
+            try:
+                raw.decode('utf-8')
+            except UnicodeDecodeError as exc:
+                raise serializers.ValidationError('El archivo .java debe ser texto UTF-8 válido.') from exc
         return value
 
     def create(self, validated_data):

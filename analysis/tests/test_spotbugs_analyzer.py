@@ -1,5 +1,7 @@
+import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 from django.test import SimpleTestCase
 from analysis.services.spotbugs_analyzer import SpotBugsAnalyzer
 
@@ -33,3 +35,34 @@ class SpotBugsAnalyzerTests(SimpleTestCase):
         self.assertEqual(finding.file_path, 'TestCalidad.java')
         self.assertEqual(finding.line, 43)
         self.assertEqual(finding.rule, 'ES_COMPARING_PARAMETER_STRING_WITH_EQ')
+
+    @patch('analysis.services.spotbugs_analyzer.subprocess.run')
+    def test_analyze_raises_runtime_error_when_compile_times_out(self, mocked_run):
+        mocked_run.side_effect = subprocess.TimeoutExpired(cmd=['javac'], timeout=1)
+        analyzer = SpotBugsAnalyzer()
+        with TemporaryDirectory() as temp_dir:
+            source_dir = Path(temp_dir) / 'source'
+            source_dir.mkdir(parents=True, exist_ok=True)
+            (source_dir / 'Demo.java').write_text('class Demo {}', encoding='utf-8')
+            workspace_dir = Path(temp_dir) / 'workspace'
+            workspace_dir.mkdir(parents=True, exist_ok=True)
+
+            with self.assertRaisesMessage(RuntimeError, 'compilación para SpotBugs excedió el tiempo máximo'):
+                analyzer.analyze(source_dir=source_dir, workspace_dir=workspace_dir)
+
+    @patch('analysis.services.spotbugs_analyzer.subprocess.run')
+    def test_analyze_raises_runtime_error_when_spotbugs_times_out(self, mocked_run):
+        mocked_run.side_effect = [
+            subprocess.CompletedProcess(args=['javac'], returncode=0, stdout='', stderr=''),
+            subprocess.TimeoutExpired(cmd=['spotbugs'], timeout=1),
+        ]
+        analyzer = SpotBugsAnalyzer()
+        with TemporaryDirectory() as temp_dir:
+            source_dir = Path(temp_dir) / 'source'
+            source_dir.mkdir(parents=True, exist_ok=True)
+            (source_dir / 'Demo.java').write_text('class Demo {}', encoding='utf-8')
+            workspace_dir = Path(temp_dir) / 'workspace'
+            workspace_dir.mkdir(parents=True, exist_ok=True)
+
+            with self.assertRaisesMessage(RuntimeError, 'SpotBugs excedió el tiempo máximo de ejecución'):
+                analyzer.analyze(source_dir=source_dir, workspace_dir=workspace_dir)
