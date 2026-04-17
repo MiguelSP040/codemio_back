@@ -22,7 +22,7 @@
 El proyecto consiste en el desarrollo de una aplicación web que permita a los usuarios:
 
 - **Subir código Java:** Carga de archivos `.java` individuales o proyectos completos comprimidos en formato `.zip`
-- **Análisis automático:** El backend procesa los archivos utilizando la librería **Java Lint** para calcular métricas estructurales y de calidad
+- **Análisis automático:** El backend procesa los archivos con **PMD** y **SpotBugs** para detectar hallazgos de calidad y buenas prácticas
 - **Dashboard de métricas:** Generación de dashboard por proyecto mostrando los resultados del análisis
 - **Evaluación de calidad:** Las métricas son evaluadas contra rangos definidos para determinar si cumplen buenas prácticas o representan posibles problemas de diseño
 - **Gestión de proyectos:** Sistema completo de CRUD para proyectos y archivos
@@ -50,7 +50,7 @@ El proyecto consiste en el desarrollo de una aplicación web que permita a los u
 | **API** | Django REST Framework | 3.15.2 | Construcción de API REST |
 | **Base de Datos** | PostgreSQL | 16+ | Persistencia de datos |
 | **Servidor WSGI** | Gunicorn | 22.0.0 | Servidor de producción |
-| **Análisis de Código** | Java Lint | TBD | Análisis estático de Java |
+| **Análisis de Código** | PMD + SpotBugs | CLI tools | Análisis estático de Java |
 | **Contenedores** | Docker | Latest | Contenedorización |
 | **CI/CD** | GitHub Actions | - | Integración continua |
 | **Despliegue** | Render | - | Hosting y despliegue |
@@ -161,7 +161,15 @@ ALLOWED_HOSTS=localhost,127.0.0.1
 
 # Para desarrollo con PostgreSQL
 DATABASE_URL=postgresql://user:password@localhost:5432/codemio_db
+
+# Análisis estático (valores portables via PATH)
+ANALYSIS_PMD_COMMAND=pmd
+ANALYSIS_SPOTBUGS_COMMAND=spotbugs
+ANALYSIS_JAVAC_COMMAND=javac
 ```
+
+Si tu entorno no resuelve esos comandos por `PATH`, define rutas absolutas solo en tu `.env` local
+(por ejemplo `/opt/homebrew/bin/pmd`), sin subir rutas específicas de sistema al repositorio.
 
 **Generar SECRET_KEY:**
 ```bash
