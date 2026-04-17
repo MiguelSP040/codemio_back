@@ -5,7 +5,7 @@
 ![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![Django](https://img.shields.io/badge/Django-5.2.11-092E20?style=for-the-badge&logo=django&logoColor=white)
 ![DRF](https://img.shields.io/badge/DRF-3.15.2-ff1709?style=for-the-badge&logo=django&logoColor=white)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-316192?style=for-the-badge&logo=postgresql&logoColor=white)
+![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1?style=for-the-badge&logo=mysql&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Latest-2496ED?style=for-the-badge&logo=docker&logoColor=white)
 ![Gunicorn](https://img.shields.io/badge/Gunicorn-22.0.0-499848?style=for-the-badge&logo=gunicorn&logoColor=white)
 
@@ -22,14 +22,14 @@
 El proyecto consiste en el desarrollo de una aplicación web que permita a los usuarios:
 
 - **Subir código Java:** Carga de archivos `.java` individuales o proyectos completos comprimidos en formato `.zip`
-- **Análisis automático:** El backend procesa los archivos utilizando la librería **Java Lint** para calcular métricas estructurales y de calidad
+- **Análisis automático:** El backend procesa los archivos con **PMD** y **SpotBugs** para detectar hallazgos de calidad y buenas prácticas
 - **Dashboard de métricas:** Generación de dashboard por proyecto mostrando los resultados del análisis
 - **Evaluación de calidad:** Las métricas son evaluadas contra rangos definidos para determinar si cumplen buenas prácticas o representan posibles problemas de diseño
 - **Gestión de proyectos:** Sistema completo de CRUD para proyectos y archivos
 
 ### Características Principales
 
-✅ **Registro y autenticación de usuarios** con sistema de roles (USER/ADMIN)  
+✅ **Registro y autenticación de usuarios** con **Amazon Cognito** (OTP por correo, registro, login JWT, renovación con refresh token, logout, **recuperación de contraseña en tres pasos** con sondeo de OTP) y perfil local (`Usuario`); ver [authentication/README.md](authentication/README.md)  
 ✅ **Gestión completa de proyectos Java** (crear, editar, eliminar, listar)  
 ✅ **Carga de archivos** individuales o en lote (`.java` y `.zip`)  
 ✅ **Descompresión automática** de archivos comprimidos  
@@ -48,14 +48,16 @@ El proyecto consiste en el desarrollo de una aplicación web que permita a los u
 |-----------|-----------|---------|-----------|
 | **Framework** | Django | 5.2.11 | Framework web principal |
 | **API** | Django REST Framework | 3.15.2 | Construcción de API REST |
-| **Base de Datos** | PostgreSQL | 16+ | Persistencia de datos |
+| **Base de Datos** | MySQL | 8.0+ | Persistencia de datos |
 | **Servidor WSGI** | Gunicorn | 22.0.0 | Servidor de producción |
-| **Análisis de Código** | Java Lint | TBD | Análisis estático de Java |
+| **Análisis de Código** | PMD + SpotBugs | CLI tools | Análisis estático de Java |
 | **Contenedores** | Docker | Latest | Contenedorización |
 | **CI/CD** | GitHub Actions | - | Integración continua |
+| **Calidad de Código** | SonarQube Cloud | - | Análisis de calidad y cobertura |
 | **Despliegue** | Render | - | Hosting y despliegue |
 | **CORS** | django-cors-headers | 4.4.0 | Manejo de CORS |
 | **Variables de Entorno** | python-decouple | 3.8 | Configuración |
+| **Cobertura de Tests** | coverage | 7.6.1 | Reportes de cobertura |
 
 ---
 
@@ -66,6 +68,7 @@ Este proyecto incluye documentación detallada para facilitar el desarrollo:
 | Archivo | Propósito |
 |---------|-----------|
 | [`README.md`](README.md) | **Guía principal** - Instalación, configuración y uso general |
+| [`authentication/README.md`](authentication/README.md) | **Autenticación** - Flujo Cognito (send → validate → register → login → refresh → users/me → logout), **forgot-password → validate-code → confirm-forgot-password**, tokens y modelos |
 | [`CONFIGURATION_SUMMARY.md`](CONFIGURATION_SUMMARY.md) | **Resumen de configuración** - Explicación detallada de todos los archivos de configuración |
 | [`COMMANDS.md`](COMMANDS.md) | **Referencia de comandos** - Lista completa de comandos útiles para desarrollo |
 | [`PROJECT_MAP.md`](PROJECT_MAP.md) | **Mapa técnico del proyecto** - Arquitectura y flujos visualizados con Mermaid |
@@ -76,7 +79,7 @@ Este proyecto incluye documentación detallada para facilitar el desarrollo:
 ## 📦 Requisitos Previos
 
 - Python 3.12+
-- PostgreSQL (para producción)
+- MySQL 8.0+ (para producción)
 - Docker (opcional, para contenedorización)
 - Git
 
@@ -148,19 +151,10 @@ Crea un archivo `.env` en la raíz del proyecto basándote en `.env.example`:
 cp .env.example .env
 ```
 
-Edita el archivo `.env` con tus configuraciones:
+Edita el archivo `.env` con tus configuraciones. El archivo `.env.example` incluye todas las variables necesarias con ejemplos.
 
-```env
-SECRET_KEY=tu-secret-key-generada
-DEBUG=True
-ALLOWED_HOSTS=localhost,127.0.0.1
-
-# Para desarrollo local con SQLite (por defecto)
-# DATABASE_URL no es necesario
-
-# Para desarrollo con PostgreSQL
-DATABASE_URL=postgresql://user:password@localhost:5432/codemio_db
-```
+Si tu entorno no resuelve esos comandos por `PATH`, define rutas absolutas solo en tu `.env` local
+(por ejemplo `/opt/homebrew/bin/pmd`), sin subir rutas específicas de sistema al repositorio.
 
 **Generar SECRET_KEY:**
 ```bash
@@ -191,74 +185,7 @@ El servidor estará disponible en: `http://localhost:8000`
 
 ---
 
-### Construir imagen Docker
-
-```bash
-docker build -t codemio-backend .
-```
-
-### Ejecutar contenedor
-
-```bash
-docker run -p 8000:8000 \
-  -e SECRET_KEY="your-secret-key" \
-  -e DEBUG=False \
-  -e DATABASE_URL="postgresql://user:password@host:5432/database" \
-  -e ALLOWED_HOSTS=".render.com,localhost" \
-  codemio-backend
-```
-
-### Docker Compose (opcional)
-
-Puedes crear un `docker-compose.yml` para desarrollo local:
-
-```yaml
-version: '3.8'
-
-services:
-  db:
-    image: postgres:16
-    environment:
-      POSTGRES_DB: codemio_db
-      POSTGRES_USER: codemio_user
-      POSTGRES_PASSWORD: codemio_password
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-
-  web:
-    build: .
-    command: python manage.py runserver 0.0.0.0:8000
-    volumes:
-      - .:/app
-    ports:
-      - "8000:8000"
-    environment:
-      - DATABASE_URL=postgresql://codemio_user:codemio_password@db:5432/codemio_db
-      - DEBUG=True
-    depends_on:
-      - db
-
-volumes:
-  postgres_data:
-```
-
-Ya existe un `docker-compose.yml` configurado. Simplemente ejecuta:
-
-```bash
-docker-compose up
-```
-
-Para detener:
-
-```bash
-docker-compose down
-```
-
-> 📖 **Más información:** Consulta [`CONFIGURATION_SUMMARY.md`](CONFIGURATION_SUMMARY.md#-archivos-docker) para detalles sobre la configuración de Docker.
-
----
+## 🔧 Gestión de Dependencias
 
 ### Instalar nueva dependencia
 
@@ -284,6 +211,45 @@ deactivate
 
 ---
 
+## 🐳 Docker
+
+### Construir imagen Docker
+
+```bash
+docker build -t codemio-backend .
+```
+
+### Ejecutar contenedor
+
+```bash
+docker run -p 8000:8000 \
+  -e SECRET_KEY="your-secret-key" \
+  -e DEBUG=False \
+  -e DATABASE_URL="mysql://user:password@host:3306/database" \
+  -e ALLOWED_HOSTS="localhost" \
+  codemio-backend
+```
+
+### Docker Compose
+
+Ya existe un `docker-compose.yml` configurado. Simplemente ejecuta:
+
+```bash
+docker-compose up
+```
+
+Para detener:
+
+```bash
+docker-compose down
+```
+
+> 📖 **Más información:** Consulta [`CONFIGURATION_SUMMARY.md`](CONFIGURATION_SUMMARY.md#-archivos-docker) para detalles sobre la configuración de Docker.
+
+---
+
+## 📁 Estructura del Proyecto
+
 ```
 codemio_back/
 ├── codemio_back/          # Configuración principal del proyecto
@@ -308,38 +274,7 @@ codemio_back/
 
 ---
 
-### Configuración
-
-1. Conecta tu repositorio de GitHub con Render
-2. Crea un nuevo **Web Service**
-3. Configura las siguientes variables de entorno en Render:
-
-```
-SECRET_KEY=<generar-nueva-clave>
-DEBUG=False
-ALLOWED_HOSTS=.render.com
-DATABASE_URL=<proporcionado-por-render-postgresql>
-CORS_ALLOWED_ORIGINS=https://tu-frontend.render.com
-PORT=8000
-```
-
-4. Render detectará automáticamente el `Dockerfile` y lo usará para el despliegue
-
-### Base de Datos
-
-1. Crea una **PostgreSQL Database** en Render
-2. Copia la **Internal Database URL**
-3. Pégala como valor de `DATABASE_URL` en las variables de entorno del Web Service
-
-### Despliegue Automático
-
-Cada push a la rama `main` activará:
-1. GitHub Actions ejecutará tests y validará el build de Docker
-2. Render detectará el commit y construirá/desplegará automáticamente
-
-> 📋 **Guía detallada:** Para instrucciones paso a paso de despliegue, consulta la [documentación oficial de Render](https://render.com/docs/deploy-django).
-
----
+## 🧪 Testing
 
 ```bash
 # Ejecutar todos los tests
@@ -358,11 +293,61 @@ coverage report
 
 ---
 
-- Nunca commitees el archivo `.env`
-- Usa `SECRET_KEY` diferentes para desarrollo y producción
-- Mantén `DEBUG=False` en producción
-- Actualiza dependencias regularmente
-- Revisa las alertas de seguridad de GitHub
+## 🔄 CI/CD y Análisis de Calidad
+
+Este proyecto utiliza **GitHub Actions** para integración continua y despliegue continuo, con análisis de calidad mediante **SonarQube Cloud**.
+
+### Pipelines Disponibles
+
+El proyecto cuenta con dos pipelines independientes:
+
+| Pipeline | Archivo | Rama | Propósito |
+|----------|---------|------|-----------|
+| **Production** | [`.github/workflows/production.yml`](.github/workflows/production.yml) | `main` | Pipeline de producción |
+| **Development** | [`.github/workflows/development.yml`](.github/workflows/development.yml) | `develop` | Pipeline de desarrollo |
+
+### Flujo de CI/CD
+
+Cada pipeline ejecuta automáticamente los siguientes pasos:
+
+1. **Tests y Linting**: Validación de código con flake8 y ejecución de tests
+2. **Generación de Cobertura**: Reporte de cobertura de código en formato XML
+3. **Análisis SonarQube**: Análisis estático de calidad de código
+4. **Quality Gate**: Verificación de estándares de calidad
+5. **Build Docker**: Construcción y validación de imagen Docker
+
+### Ejecución de Análisis Local
+
+Para ejecutar el análisis de cobertura localmente:
+
+```bash
+# Instalar dependencias de cobertura
+pip install coverage pytest-cov
+
+# Ejecutar tests con cobertura
+coverage run --source='.' manage.py test
+
+# Generar reporte XML (para SonarQube)
+coverage xml
+
+# Ver reporte en consola
+coverage report
+
+# Generar reporte HTML
+coverage html
+# Ver en: htmlcov/index.html
+```
+
+---
+
+## 🔒 Seguridad y Mejores Prácticas
+
+- ✅ Nunca commitees el archivo `.env` (ya está en `.gitignore`)
+- ✅ Usa `SECRET_KEY` **diferentes** para desarrollo, CI/CD y producción
+- ✅ Mantén `DEBUG=False` en producción **SIEMPRE**
+- ✅ Actualiza dependencias regularmente
+- ✅ Revisa las alertas de seguridad de GitHub
+- ✅ Usa credenciales de base de datos diferentes en cada ambiente
 
 ## 📝 Conventional Commits
 

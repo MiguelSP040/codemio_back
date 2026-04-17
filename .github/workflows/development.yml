@@ -1,10 +1,10 @@
-name: Django Backend CI/CD - Production
+name: Django Backend CI/CD - Development
 
 on:
   push:
-    branches: [ main ]
+    branches: [ develop ]
   pull_request:
-    branches: [ main ]
+    branches: [ develop ]
 
 env:
   PYTHON_VERSION: '3.12'
@@ -121,12 +121,12 @@ jobs:
       with:
         context: .
         push: false
-        tags: codemio-backend:${{ github.sha }}
+        tags: codemio-backend-dev:${{ github.sha }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
     - name: Test Docker image
       run: |
-        docker build -t codemio-backend:test .
-        echo "Docker image built successfully for production"
-        echo "Ready for deployment to Render"
+        docker build -t codemio-backend-dev:test .
+        echo "Docker image built successfully for development"
+        echo "Ready for testing in development environment"
