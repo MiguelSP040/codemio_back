@@ -1,10 +1,16 @@
 import hashlib
 from pathlib import Path
 from django.conf import settings
+from django.db import transaction
 from rest_framework import serializers
 from analysis.models import AnalysisFinding, AnalysisInputType, AnalysisRun
 from analysis.services.pipeline import start_analysis_run
 from projects.models import Project, ProjectState
+
+
+def normalize_logical_filename(raw_name: str) -> str:
+    normalized = str(raw_name or '').replace('\\', '/').strip()
+    return Path(normalized).name.lower()
 
 
 class AnalysisFindingSerializer(serializers.ModelSerializer):
@@ -33,6 +39,7 @@ class AnalysisRunSerializer(serializers.ModelSerializer):
     user_id = serializers.IntegerField(read_only=True)
     findings = AnalysisFindingSerializer(many=True, read_only=True)
     metrics = serializers.SerializerMethodField()
+    overwrite_applied = serializers.SerializerMethodField()
 
     def get_metrics(self, obj: AnalysisRun) -> dict:
         return {
@@ -51,6 +58,9 @@ class AnalysisRunSerializer(serializers.ModelSerializer):
             'maintainability_rating': obj.maintainability_rating,
         }
 
+    def get_overwrite_applied(self, obj: AnalysisRun) -> bool:
+        return bool(getattr(obj, 'overwrite_applied', False))
+
     class Meta:
         model = AnalysisRun
         fields = (
@@ -60,6 +70,8 @@ class AnalysisRunSerializer(serializers.ModelSerializer):
             'status',
             'input_type',
             'original_filename',
+            'logical_filename',
+            'is_active_for_filename',
             'source_sha256',
             'sonar_project_key',
             'quality_gate_status',
@@ -84,6 +96,7 @@ class AnalysisRunSerializer(serializers.ModelSerializer):
             'finished_at',
             'findings',
             'metrics',
+            'overwrite_applied',
         )
         read_only_fields = fields
 
@@ -119,22 +132,30 @@ class AnalysisRunCreateSerializer(serializers.Serializer):
     def create(self, validated_data):
         request = self.context['request']
         user = request.user.usuario
-        project = Project.objects.get(
-            id=validated_data['project_id'],
-            user=user,
-            state=ProjectState.ACTIVE,
-        )
+        project = Project.objects.get(id=validated_data['project_id'], user=user, state=ProjectState.ACTIVE)
         uploaded = validated_data['source_file']
         source_bytes = uploaded.read()
         input_type = AnalysisInputType.ZIP if Path(uploaded.name).suffix.lower() == '.zip' else AnalysisInputType.JAVA
+        logical_filename = normalize_logical_filename(uploaded.name)
 
-        run = AnalysisRun.objects.create(
-            project=project,
-            user=user,
-            input_type=input_type,
-            original_filename=uploaded.name,
-            source_sha256=hashlib.sha256(source_bytes).hexdigest(),
-        )
+        with transaction.atomic():
+            previous_runs = AnalysisRun.objects.select_for_update().filter(
+                project=project,
+                logical_filename=logical_filename,
+                is_active_for_filename=True,
+            )
+            overwrite_applied = previous_runs.exists()
+            previous_runs.update(is_active_for_filename=False)
+            run = AnalysisRun.objects.create(
+                project=project,
+                user=user,
+                input_type=input_type,
+                original_filename=uploaded.name,
+                logical_filename=logical_filename,
+                is_active_for_filename=True,
+                source_sha256=hashlib.sha256(source_bytes).hexdigest(),
+            )
+            run.overwrite_applied = overwrite_applied
 
         start_analysis_run(
             run_id=run.id,

@@ -98,6 +98,7 @@ class ProjectSerializer(serializers.ModelSerializer):
         findings = AnalysisFinding.objects.filter(
             run__project=obj,
             run__status=AnalysisRunStatus.DONE,
+            run__is_active_for_filename=True,
         ).order_by('-run__created_at', '-run_id', 'id')
 
         latest_run_by_file: dict[str, int] = {}

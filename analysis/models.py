@@ -38,6 +38,8 @@ class AnalysisRun(models.Model):
     )
     input_type = models.CharField(max_length=10, choices=AnalysisInputType.choices)
     original_filename = models.CharField(max_length=255)
+    logical_filename = models.CharField(max_length=255, db_index=True, blank=True, default='')
+    is_active_for_filename = models.BooleanField(default=True, db_index=True)
     source_sha256 = models.CharField(max_length=64, blank=True, default='')
     sonar_project_key = models.CharField(max_length=255, blank=True, default='')
     quality_gate_status = models.CharField(max_length=20, blank=True, default='')
@@ -65,6 +67,13 @@ class AnalysisRun(models.Model):
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['project', 'status']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['project', 'logical_filename'],
+                condition=Q(is_active_for_filename=True) & ~Q(logical_filename=''),
+                name='analysis_unique_active_logical_file_per_project',
+            ),
         ]
 
 

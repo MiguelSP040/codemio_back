@@ -17,6 +17,10 @@ class AnalysisRunListCreateView(ListCreateAPIView):
     throttle_classes = [AnalysisScopedRateThrottle]
     throttle_scope = 'analysis_runs'
 
+    @staticmethod
+    def _parse_bool_query_param(value) -> bool:
+        return str(value or '').strip().lower() in {'1', 'true', 'yes', 'on'}
+
     def get_queryset(self):
         user = self.request.user.usuario
         queryset = AnalysisRun.objects.select_related('project', 'user')
@@ -31,6 +35,8 @@ class AnalysisRunListCreateView(ListCreateAPIView):
         status_value = str(self.request.query_params.get('status') or '').upper().strip()
         if status_value in AnalysisRunStatus.values:
             queryset = queryset.filter(status=status_value)
+        if self._parse_bool_query_param(self.request.query_params.get('active_only')):
+            queryset = queryset.filter(is_active_for_filename=True)
         return queryset
 
     def get_serializer_class(self):

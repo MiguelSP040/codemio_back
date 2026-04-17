@@ -56,7 +56,61 @@ class AnalysisRunsApiTests(TestCase):
         self.assertEqual(run.status, AnalysisRunStatus.PENDING)
         self.assertEqual(run.project_id, self.owner_project.id)
         self.assertEqual(run.user_id, self.owner.id)
+        self.assertEqual(run.logical_filename, 'demo.java')
+        self.assertTrue(run.is_active_for_filename)
         mocked_start.assert_called_once()
+
+    @patch('analysis.serializers.start_analysis_run')
+    def test_create_run_overwrites_active_run_with_same_name_in_same_project(self, mocked_start):
+        self.client.force_authenticate(user=CognitoPrincipal(self.owner))
+        first = SimpleUploadedFile('Demo.java', b'class DemoV1 {}', content_type='text/plain')
+        second = SimpleUploadedFile('demo.java', b'class DemoV2 {}', content_type='text/plain')
+
+        first_response = self.client.post(
+            '/analysis/runs/',
+            {'project_id': self.owner_project.id, 'source_file': first},
+            format='multipart',
+        )
+        self.assertEqual(first_response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertFalse(first_response.data.get('overwrite_applied'))
+
+        second_response = self.client.post(
+            '/analysis/runs/',
+            {'project_id': self.owner_project.id, 'source_file': second},
+            format='multipart',
+        )
+        self.assertEqual(second_response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertTrue(second_response.data.get('overwrite_applied'))
+
+        runs = list(AnalysisRun.objects.filter(project=self.owner_project, logical_filename='demo.java').order_by('id'))
+        self.assertEqual(len(runs), 2)
+        self.assertFalse(runs[0].is_active_for_filename)
+        self.assertTrue(runs[1].is_active_for_filename)
+
+    @patch('analysis.serializers.start_analysis_run')
+    def test_create_run_same_name_in_different_project_keeps_each_active(self, mocked_start):
+        self.client.force_authenticate(user=CognitoPrincipal(self.owner))
+        own_uploaded = SimpleUploadedFile('shared.java', b'class SharedOwner {}', content_type='text/plain')
+        response = self.client.post(
+            '/analysis/runs/',
+            {'project_id': self.owner_project.id, 'source_file': own_uploaded},
+            format='multipart',
+        )
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+
+        AnalysisRun.objects.create(
+            project=self.other_project,
+            user=self.other_user,
+            status=AnalysisRunStatus.DONE,
+            input_type='java',
+            original_filename='shared.java',
+            logical_filename='shared.java',
+            is_active_for_filename=True,
+        )
+        self.assertEqual(
+            AnalysisRun.objects.filter(logical_filename='shared.java', is_active_for_filename=True).count(),
+            2,
+        )
 
     def test_create_run_rejects_file_type(self):
         self.client.force_authenticate(user=CognitoPrincipal(self.owner))
@@ -143,6 +197,32 @@ class AnalysisRunsApiTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['count'], 1)
         self.assertEqual(response.data['results'][0]['id'], done_run.id)
+
+    def test_list_runs_supports_active_only_filter(self):
+        inactive_run = AnalysisRun.objects.create(
+            project=self.owner_project,
+            user=self.owner,
+            status=AnalysisRunStatus.DONE,
+            input_type='java',
+            original_filename='demo.java',
+            logical_filename='demo.java',
+            is_active_for_filename=False,
+        )
+        active_run = AnalysisRun.objects.create(
+            project=self.owner_project,
+            user=self.owner,
+            status=AnalysisRunStatus.DONE,
+            input_type='java',
+            original_filename='demo.java',
+            logical_filename='demo.java',
+            is_active_for_filename=True,
+        )
+        self.client.force_authenticate(user=CognitoPrincipal(self.owner))
+        response = self.client.get('/analysis/runs/', {'active_only': 'true'})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = {item['id'] for item in response.data['results']}
+        self.assertIn(active_run.id, ids)
+        self.assertNotIn(inactive_run.id, ids)
 
     def test_admin_can_list_and_retrieve_foreign_runs(self):
         owner_run = AnalysisRun.objects.create(
