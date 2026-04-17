@@ -2,7 +2,7 @@ from django.test import TestCase
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
-from analysis.models import AnalysisFinding, AnalysisInputType, AnalysisRun, AnalysisRunStatus
+from analysis.models import AnalysisFileMetric, AnalysisFinding, AnalysisInputType, AnalysisRun, AnalysisRunStatus
 from authentication.models import RolUsuario, Usuario
 from authentication.principal import CognitoPrincipal
 from projects.models import Project, ProjectState
@@ -336,5 +336,50 @@ class ProjectsApiTests(TestCase):
                 'medium': 1,
                 'low': 0,
                 'total': 1,
+            },
+        )
+
+    def test_projects_include_syntax_summary_from_active_done_runs(self):
+        project = Project.objects.create(user=self.owner, name='Syntax Summary Project')
+        active_run = AnalysisRun.objects.create(
+            project=project,
+            user=self.owner,
+            status=AnalysisRunStatus.DONE,
+            input_type=AnalysisInputType.JAVA,
+            original_filename='active.java',
+            logical_filename='active.java',
+            is_active_for_filename=True,
+        )
+        AnalysisRun.objects.create(
+            project=project,
+            user=self.owner,
+            status=AnalysisRunStatus.DONE,
+            input_type=AnalysisInputType.JAVA,
+            original_filename='old.java',
+            logical_filename='old.java',
+            is_active_for_filename=False,
+        )
+        AnalysisFileMetric.objects.create(
+            run=active_run,
+            file_path='src/Active.java',
+            classes_count=2,
+            methods_count=5,
+            parameters_count=4,
+            inheritance_count=1,
+            interclass_calls_count=3,
+        )
+
+        self.client.force_authenticate(user=CognitoPrincipal(self.owner))
+        response = self.client.get('/projects/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        item = response.data['results'][0]
+        self.assertEqual(
+            item['syntax_summary'],
+            {
+                'classes': 2,
+                'methods': 5,
+                'parameters': 4,
+                'inheritance': 1,
+                'interclass_calls': 3,
             },
         )

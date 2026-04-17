@@ -55,6 +55,11 @@ class AnalysisRun(models.Model):
     reliability_rating = models.PositiveSmallIntegerField(default=0)
     security_rating = models.PositiveSmallIntegerField(default=0)
     maintainability_rating = models.PositiveSmallIntegerField(default=0)
+    classes_count = models.PositiveIntegerField(default=0)
+    methods_count = models.PositiveIntegerField(default=0)
+    parameters_count = models.PositiveIntegerField(default=0)
+    inheritance_count = models.PositiveIntegerField(default=0)
+    interclass_calls_count = models.PositiveIntegerField(default=0)
     total_files_analyzed = models.PositiveIntegerField(default=0)
     findings_count = models.PositiveIntegerField(default=0)
     error_summary = models.CharField(max_length=255, blank=True, default='')
@@ -109,4 +114,26 @@ class AnalysisFinding(models.Model):
                 condition=~Q(issue_key=''),
                 name='analysis_unique_issue_key_per_run',
             ),
+        ]
+
+
+class AnalysisFileMetric(models.Model):
+    run = models.ForeignKey(
+        AnalysisRun,
+        on_delete=models.CASCADE,
+        related_name='file_metrics',
+        db_column='run_id',
+    )
+    file_path = models.CharField(max_length=500, db_index=True)
+    classes_count = models.PositiveIntegerField(default=0)
+    methods_count = models.PositiveIntegerField(default=0)
+    parameters_count = models.PositiveIntegerField(default=0)
+    inheritance_count = models.PositiveIntegerField(default=0)
+    interclass_calls_count = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['file_path', 'id']
+        indexes = [
+            models.Index(fields=['run', 'file_path']),
         ]

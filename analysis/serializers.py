@@ -3,7 +3,7 @@ from pathlib import Path
 from django.conf import settings
 from django.db import transaction
 from rest_framework import serializers
-from analysis.models import AnalysisFinding, AnalysisInputType, AnalysisRun
+from analysis.models import AnalysisFileMetric, AnalysisFinding, AnalysisInputType, AnalysisRun
 from analysis.services.pipeline import start_analysis_run
 from projects.models import Project, ProjectState
 
@@ -34,10 +34,25 @@ class AnalysisFindingSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class AnalysisFileMetricSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AnalysisFileMetric
+        fields = (
+            'file_path',
+            'classes_count',
+            'methods_count',
+            'parameters_count',
+            'inheritance_count',
+            'interclass_calls_count',
+        )
+        read_only_fields = fields
+
+
 class AnalysisRunSerializer(serializers.ModelSerializer):
     project_id = serializers.IntegerField(read_only=True)
     user_id = serializers.IntegerField(read_only=True)
     findings = AnalysisFindingSerializer(many=True, read_only=True)
+    file_metrics = AnalysisFileMetricSerializer(many=True, read_only=True)
     metrics = serializers.SerializerMethodField()
     overwrite_applied = serializers.SerializerMethodField()
 
@@ -56,6 +71,11 @@ class AnalysisRunSerializer(serializers.ModelSerializer):
             'reliability_rating': obj.reliability_rating,
             'security_rating': obj.security_rating,
             'maintainability_rating': obj.maintainability_rating,
+            'classes_count': obj.classes_count,
+            'methods_count': obj.methods_count,
+            'parameters_count': obj.parameters_count,
+            'inheritance_count': obj.inheritance_count,
+            'interclass_calls_count': obj.interclass_calls_count,
         }
 
     def get_overwrite_applied(self, obj: AnalysisRun) -> bool:
@@ -87,6 +107,11 @@ class AnalysisRunSerializer(serializers.ModelSerializer):
             'reliability_rating',
             'security_rating',
             'maintainability_rating',
+            'classes_count',
+            'methods_count',
+            'parameters_count',
+            'inheritance_count',
+            'interclass_calls_count',
             'total_files_analyzed',
             'findings_count',
             'error_summary',
@@ -95,6 +120,7 @@ class AnalysisRunSerializer(serializers.ModelSerializer):
             'started_at',
             'finished_at',
             'findings',
+            'file_metrics',
             'metrics',
             'overwrite_applied',
         )

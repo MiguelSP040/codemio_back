@@ -3,7 +3,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
-from analysis.models import AnalysisRun, AnalysisRunStatus
+from analysis.models import AnalysisFileMetric, AnalysisRun, AnalysisRunStatus
 from authentication.models import RolUsuario, Usuario
 from authentication.principal import CognitoPrincipal
 from projects.models import Project
@@ -248,3 +248,37 @@ class AnalysisRunsApiTests(TestCase):
         detail = self.client.get(f'/analysis/runs/{foreign_run.id}/')
         self.assertEqual(detail.status_code, status.HTTP_200_OK)
         self.assertEqual(detail.data['id'], foreign_run.id)
+
+    def test_run_serializer_exposes_syntax_metrics_and_file_metrics(self):
+        run = AnalysisRun.objects.create(
+            project=self.owner_project,
+            user=self.owner,
+            status=AnalysisRunStatus.DONE,
+            input_type='java',
+            original_filename='metrics.java',
+            classes_count=3,
+            methods_count=6,
+            parameters_count=7,
+            inheritance_count=2,
+            interclass_calls_count=5,
+        )
+        AnalysisFileMetric.objects.create(
+            run=run,
+            file_path='src/Main.java',
+            classes_count=2,
+            methods_count=4,
+            parameters_count=5,
+            inheritance_count=1,
+            interclass_calls_count=3,
+        )
+        self.client.force_authenticate(user=CognitoPrincipal(self.owner))
+
+        detail = self.client.get(f'/analysis/runs/{run.id}/')
+        self.assertEqual(detail.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail.data['metrics']['classes_count'], 3)
+        self.assertEqual(detail.data['metrics']['methods_count'], 6)
+        self.assertEqual(detail.data['metrics']['parameters_count'], 7)
+        self.assertEqual(detail.data['metrics']['inheritance_count'], 2)
+        self.assertEqual(detail.data['metrics']['interclass_calls_count'], 5)
+        self.assertEqual(len(detail.data['file_metrics']), 1)
+        self.assertEqual(detail.data['file_metrics'][0]['file_path'], 'src/Main.java')

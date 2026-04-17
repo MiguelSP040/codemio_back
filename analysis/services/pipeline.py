@@ -8,7 +8,8 @@ from tempfile import TemporaryDirectory
 import time
 import zipfile
 from django.conf import settings
-from analysis.models import AnalysisFinding, AnalysisInputType, AnalysisRun, AnalysisRunStatus
+from analysis.models import AnalysisFileMetric, AnalysisFinding, AnalysisInputType, AnalysisRun, AnalysisRunStatus
+from analysis.services.java_syntax_metrics import extract_java_syntax_metrics
 from analysis.services.sonar_runtime_service import run_sonar_analysis
 
 
@@ -99,6 +100,7 @@ def _execute_analysis_run(
                     source_name=source_name,
                 )
                 findings = sonar_result.findings
+                syntax_metrics = extract_java_syntax_metrics(source_dir)
 
                 AnalysisFinding.objects.filter(run=run).delete()
                 AnalysisFinding.objects.bulk_create(
@@ -120,6 +122,21 @@ def _execute_analysis_run(
                         for finding in findings
                     ]
                 )
+                AnalysisFileMetric.objects.filter(run=run).delete()
+                AnalysisFileMetric.objects.bulk_create(
+                    [
+                        AnalysisFileMetric(
+                            run=run,
+                            file_path=item.file_path,
+                            classes_count=item.classes_count,
+                            methods_count=item.methods_count,
+                            parameters_count=item.parameters_count,
+                            inheritance_count=item.inheritance_count,
+                            interclass_calls_count=item.interclass_calls_count,
+                        )
+                        for item in syntax_metrics.files
+                    ]
+                )
 
                 run.status = AnalysisRunStatus.DONE
                 run.sonar_project_key = sonar_project_key
@@ -136,6 +153,11 @@ def _execute_analysis_run(
                 run.reliability_rating = sonar_result.metrics.reliability_rating
                 run.security_rating = sonar_result.metrics.security_rating
                 run.maintainability_rating = sonar_result.metrics.maintainability_rating
+                run.classes_count = syntax_metrics.classes_count
+                run.methods_count = syntax_metrics.methods_count
+                run.parameters_count = syntax_metrics.parameters_count
+                run.inheritance_count = syntax_metrics.inheritance_count
+                run.interclass_calls_count = syntax_metrics.interclass_calls_count
                 run.total_files_analyzed = total_files
                 run.findings_count = len(findings)
                 run.finished_at = datetime.now(timezone.utc)
@@ -158,6 +180,11 @@ def _execute_analysis_run(
                         'reliability_rating',
                         'security_rating',
                         'maintainability_rating',
+                        'classes_count',
+                        'methods_count',
+                        'parameters_count',
+                        'inheritance_count',
+                        'interclass_calls_count',
                         'total_files_analyzed',
                         'findings_count',
                         'finished_at',
