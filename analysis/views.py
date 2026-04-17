@@ -15,7 +15,18 @@ class AnalysisRunListCreateView(ListCreateAPIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
     throttle_classes = [AnalysisScopedRateThrottle]
-    throttle_scope = 'analysis_runs'
+
+    def get_throttles(self):
+        # El throttle existe para frenar abuso de subidas (POST). Aplicarlo
+        # también a GET rompe el polling del frontend: el modal de progreso y
+        # el dashboard listan runs cada pocos segundos y se gastan la cuota
+        # en menos de un minuto. Separamos scope de lectura y escritura para
+        # poder afinar cada tasa sin bloquear a usuarios legítimos.
+        if self.request.method == 'POST':
+            self.throttle_scope = 'analysis_runs_write'
+        else:
+            self.throttle_scope = 'analysis_runs_read'
+        return super().get_throttles()
 
     @staticmethod
     def _parse_bool_query_param(value) -> bool:

@@ -212,6 +212,8 @@ REST_FRAMEWORK = {
         'auth_forgot_validate': '10/min',
         'auth_confirm_forgot': '5/min',
         'analysis_runs': '20/min',
+        'analysis_runs_write': '20/min',
+        'analysis_runs_read': '240/min',
     },
 }
 
