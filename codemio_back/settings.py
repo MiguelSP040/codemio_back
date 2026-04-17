@@ -202,11 +202,12 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.ScopedRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        # Sensibles (anti brute-force). Ajustar según entorno.
         'auth_send': '10/min',
         'auth_validate': '10/min',
         'auth_login': '10/min',
         'auth_register': '10/min',
+        'auth_refresh': '12/min',
+        'auth_logout': '20/min',
         'auth_forgot_password': '5/min',
         'auth_forgot_validate': '10/min',
         'auth_confirm_forgot': '5/min',

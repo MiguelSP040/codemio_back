@@ -6,6 +6,7 @@ from rest_framework.test import APIClient
 from authentication.models import RolUsuario, Usuario
 from authentication.principal import CognitoPrincipal
 from authentication.services.cognito_service import CognitoServiceError
+from authentication.views import AuthLogoutView
 
 @override_settings(
     AWS_COGNITO_ISSUER='https://cognito-idp.us-east-1.amazonaws.com/us-east-1_TEST',
@@ -128,3 +129,7 @@ class AuthLogoutSwaggerTests(TestCase):
         self.assertEqual(post_op.get('operationId'), 'auth_logout')
         self.assertIn('security', post_op)
         self.assertEqual(post_op['security'], [{'Bearer': []}])
+
+    def test_auth_logout_view_has_scoped_rate_limit(self):
+        self.assertEqual(getattr(AuthLogoutView, 'throttle_scope', None), 'auth_logout')
+        self.assertTrue(getattr(AuthLogoutView, 'throttle_classes', []))

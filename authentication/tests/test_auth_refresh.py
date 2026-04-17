@@ -4,6 +4,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 from authentication.models import RolUsuario, Usuario
 from authentication.services.cognito_service import CognitoServiceError
+from authentication.views import AuthRefreshView
 
 class AuthRefreshViewTests(TestCase):
     def setUp(self):
@@ -124,3 +125,7 @@ class AuthRefreshOpenApiTests(TestCase):
         post = r.json()['paths']['/auth/refresh/']['post']
         self.assertEqual(post.get('operationId'), 'auth_refresh')
         self.assertEqual(post.get('security'), [])
+
+    def test_auth_refresh_view_has_scoped_rate_limit(self):
+        self.assertEqual(getattr(AuthRefreshView, 'throttle_scope', None), 'auth_refresh')
+        self.assertTrue(getattr(AuthRefreshView, 'throttle_classes', []))
