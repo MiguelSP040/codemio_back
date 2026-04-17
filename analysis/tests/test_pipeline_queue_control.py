@@ -1,9 +1,10 @@
 from unittest.mock import patch
+from types import SimpleNamespace
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from analysis.models import AnalysisInputType, AnalysisRun, AnalysisRunStatus
-from analysis.services.pipeline import start_analysis_run
+from analysis.services.pipeline import _execute_analysis_run, start_analysis_run
 from authentication.models import RolUsuario, Usuario
 from projects.models import Project
 
@@ -37,3 +38,45 @@ class PipelineQueueControlTests(TestCase):
         self.assertEqual(run.status, AnalysisRunStatus.FAILED)
         self.assertIn('Cola de análisis saturada', run.error_summary)
         self.assertEqual(run.error_detail, 'analysis_queue_overloaded')
+
+    @override_settings(ANALYSIS_RETRY_ATTEMPTS=2, ANALYSIS_RETRY_BACKOFF_SECONDS=0)
+    @patch('analysis.services.pipeline.time.sleep', return_value=None)
+    @patch('analysis.services.pipeline.run_sonar_analysis')
+    def test_execute_analysis_run_retries_and_succeeds(self, mocked_sonar, _mocked_sleep):
+        run = AnalysisRun.objects.create(
+            project=self.project,
+            user=self.user,
+            input_type=AnalysisInputType.JAVA,
+            original_filename='Retry.java',
+        )
+        ok_metrics = SimpleNamespace(
+            quality_gate_status='OK',
+            bugs=0,
+            vulnerabilities=0,
+            code_smells=0,
+            complexity=0,
+            duplicated_lines_density=0.0,
+            duplicated_lines=0,
+            coverage=0.0,
+            lines_to_cover=0,
+            ncloc=1,
+            reliability_rating=1,
+            security_rating=1,
+            maintainability_rating=1,
+        )
+        mocked_sonar.side_effect = [
+            RuntimeError('sonar transient error'),
+            SimpleNamespace(findings=[], metrics=ok_metrics),
+        ]
+
+        _execute_analysis_run(
+            run_id=run.id,
+            source_name='Retry.java',
+            source_bytes=b'class Retry {}',
+            input_type=AnalysisInputType.JAVA,
+        )
+
+        run.refresh_from_db()
+        self.assertEqual(run.status, AnalysisRunStatus.DONE)
+        self.assertEqual(mocked_sonar.call_count, 2)
+        self.assertEqual(run.error_summary, '')

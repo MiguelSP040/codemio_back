@@ -5,6 +5,7 @@ from pathlib import Path, PurePosixPath
 import stat
 from threading import BoundedSemaphore
 from tempfile import TemporaryDirectory
+import time
 import zipfile
 from django.conf import settings
 from analysis.models import AnalysisFinding, AnalysisInputType, AnalysisRun, AnalysisRunStatus
@@ -69,99 +70,121 @@ def _execute_analysis_run(
     run.error_detail = ''
     run.save(update_fields=['status', 'started_at', 'error_summary', 'error_detail', 'updated_at'] if hasattr(run, 'updated_at') else ['status', 'started_at', 'error_summary', 'error_detail'])
 
-    try:
-        with TemporaryDirectory(prefix=f'codemio-analysis-{run_id}-') as temp_dir:
-            workspace_dir = Path(temp_dir)
-            source_dir = workspace_dir / 'source'
-            source_dir.mkdir(parents=True, exist_ok=True)
+    max_retries = max(int(getattr(settings, 'ANALYSIS_RETRY_ATTEMPTS', 2)), 0)
+    retry_backoff_seconds = max(float(getattr(settings, 'ANALYSIS_RETRY_BACKOFF_SECONDS', 1.5)), 0.0)
 
-            uploaded_file = workspace_dir / Path(source_name).name
-            uploaded_file.write_bytes(source_bytes)
+    for attempt in range(1, max_retries + 2):
+        try:
+            with TemporaryDirectory(prefix=f'codemio-analysis-{run_id}-') as temp_dir:
+                workspace_dir = Path(temp_dir)
+                source_dir = workspace_dir / 'source'
+                source_dir.mkdir(parents=True, exist_ok=True)
 
-            if input_type == AnalysisInputType.ZIP:
-                total_files = _extract_zip(uploaded_file, source_dir)
-            else:
-                target = source_dir / Path(source_name).name
-                target.write_bytes(source_bytes)
-                total_files = 1
+                uploaded_file = workspace_dir / Path(source_name).name
+                uploaded_file.write_bytes(source_bytes)
 
-            project_prefix = str(getattr(settings, 'SONAR_RUNTIME_PROJECT_PREFIX', 'codemio-runtime')).strip()
-            sonar_project_key = f'{project_prefix}-{run.id}'
-            sonar_result = run_sonar_analysis(
-                source_dir=source_dir,
-                workspace_dir=workspace_dir,
-                project_key=sonar_project_key,
-                source_name=source_name,
-            )
-            findings = sonar_result.findings
+                if input_type == AnalysisInputType.ZIP:
+                    total_files = _extract_zip(uploaded_file, source_dir)
+                else:
+                    target = source_dir / Path(source_name).name
+                    target.write_bytes(source_bytes)
+                    total_files = 1
 
-            AnalysisFinding.objects.filter(run=run).delete()
-            AnalysisFinding.objects.bulk_create(
-                [
-                    AnalysisFinding(
-                        run=run,
-                        tool=finding.tool,
-                        severity=finding.severity,
-                        rule=finding.rule,
-                        issue_key=finding.issue_key,
-                        issue_status=finding.issue_status,
-                        file_path=_normalize_file_path(finding.file_path),
-                        line=finding.line,
-                        message=finding.message,
-                        message_es=finding.message,
-                        finding_type=finding.finding_type,
-                        effort_minutes=finding.effort_minutes,
-                    )
-                    for finding in findings
-                ]
-            )
+                project_prefix = str(getattr(settings, 'SONAR_RUNTIME_PROJECT_PREFIX', 'codemio-runtime')).strip()
+                sonar_project_key = f'{project_prefix}-{run.id}'
+                sonar_result = run_sonar_analysis(
+                    source_dir=source_dir,
+                    workspace_dir=workspace_dir,
+                    project_key=sonar_project_key,
+                    source_name=source_name,
+                )
+                findings = sonar_result.findings
 
-            run.status = AnalysisRunStatus.DONE
-            run.sonar_project_key = sonar_project_key
-            run.quality_gate_status = sonar_result.metrics.quality_gate_status
-            run.bugs = sonar_result.metrics.bugs
-            run.vulnerabilities = sonar_result.metrics.vulnerabilities
-            run.code_smells = sonar_result.metrics.code_smells
-            run.complexity = sonar_result.metrics.complexity
-            run.duplicated_lines_density = sonar_result.metrics.duplicated_lines_density
-            run.duplicated_lines = sonar_result.metrics.duplicated_lines
-            run.coverage = sonar_result.metrics.coverage
-            run.lines_to_cover = sonar_result.metrics.lines_to_cover
-            run.ncloc = sonar_result.metrics.ncloc
-            run.reliability_rating = sonar_result.metrics.reliability_rating
-            run.security_rating = sonar_result.metrics.security_rating
-            run.maintainability_rating = sonar_result.metrics.maintainability_rating
-            run.total_files_analyzed = total_files
-            run.findings_count = len(findings)
+                AnalysisFinding.objects.filter(run=run).delete()
+                AnalysisFinding.objects.bulk_create(
+                    [
+                        AnalysisFinding(
+                            run=run,
+                            tool=finding.tool,
+                            severity=finding.severity,
+                            rule=finding.rule,
+                            issue_key=finding.issue_key,
+                            issue_status=finding.issue_status,
+                            file_path=_normalize_file_path(finding.file_path),
+                            line=finding.line,
+                            message=finding.message,
+                            message_es=finding.message,
+                            finding_type=finding.finding_type,
+                            effort_minutes=finding.effort_minutes,
+                        )
+                        for finding in findings
+                    ]
+                )
+
+                run.status = AnalysisRunStatus.DONE
+                run.sonar_project_key = sonar_project_key
+                run.quality_gate_status = sonar_result.metrics.quality_gate_status
+                run.bugs = sonar_result.metrics.bugs
+                run.vulnerabilities = sonar_result.metrics.vulnerabilities
+                run.code_smells = sonar_result.metrics.code_smells
+                run.complexity = sonar_result.metrics.complexity
+                run.duplicated_lines_density = sonar_result.metrics.duplicated_lines_density
+                run.duplicated_lines = sonar_result.metrics.duplicated_lines
+                run.coverage = sonar_result.metrics.coverage
+                run.lines_to_cover = sonar_result.metrics.lines_to_cover
+                run.ncloc = sonar_result.metrics.ncloc
+                run.reliability_rating = sonar_result.metrics.reliability_rating
+                run.security_rating = sonar_result.metrics.security_rating
+                run.maintainability_rating = sonar_result.metrics.maintainability_rating
+                run.total_files_analyzed = total_files
+                run.findings_count = len(findings)
+                run.finished_at = datetime.now(timezone.utc)
+                run.error_summary = ''
+                run.error_detail = ''
+                run.save(
+                    update_fields=[
+                        'status',
+                        'sonar_project_key',
+                        'quality_gate_status',
+                        'bugs',
+                        'vulnerabilities',
+                        'code_smells',
+                        'complexity',
+                        'duplicated_lines_density',
+                        'duplicated_lines',
+                        'coverage',
+                        'lines_to_cover',
+                        'ncloc',
+                        'reliability_rating',
+                        'security_rating',
+                        'maintainability_rating',
+                        'total_files_analyzed',
+                        'findings_count',
+                        'finished_at',
+                        'error_summary',
+                        'error_detail',
+                    ]
+                )
+                return
+        except Exception as exc:
+            trace = traceback.format_exc(limit=10)
+            if attempt <= max_retries:
+                run.error_summary = (
+                    f'Intento {attempt} de {max_retries + 1} falló. Reintentando análisis...'
+                )[:255]
+                run.error_detail = trace
+                run.save(update_fields=['error_summary', 'error_detail'])
+                sleep_seconds = retry_backoff_seconds * attempt
+                if sleep_seconds > 0:
+                    time.sleep(sleep_seconds)
+                continue
+
+            run.status = AnalysisRunStatus.FAILED
             run.finished_at = datetime.now(timezone.utc)
-            run.save(
-                update_fields=[
-                    'status',
-                    'sonar_project_key',
-                    'quality_gate_status',
-                    'bugs',
-                    'vulnerabilities',
-                    'code_smells',
-                    'complexity',
-                    'duplicated_lines_density',
-                    'duplicated_lines',
-                    'coverage',
-                    'lines_to_cover',
-                    'ncloc',
-                    'reliability_rating',
-                    'security_rating',
-                    'maintainability_rating',
-                    'total_files_analyzed',
-                    'findings_count',
-                    'finished_at',
-                ]
-            )
-    except Exception as exc:
-        run.status = AnalysisRunStatus.FAILED
-        run.finished_at = datetime.now(timezone.utc)
-        run.error_summary = str(exc)[:255]
-        run.error_detail = traceback.format_exc(limit=10)
-        run.save(update_fields=['status', 'finished_at', 'error_summary', 'error_detail'])
+            run.error_summary = str(exc)[:255]
+            run.error_detail = trace
+            run.save(update_fields=['status', 'finished_at', 'error_summary', 'error_detail'])
+            return
 
 
 def _extract_zip(zip_path: Path, target_dir: Path) -> int:
