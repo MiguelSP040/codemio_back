@@ -2,6 +2,7 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
+import stat
 from tempfile import TemporaryDirectory
 import zipfile
 from django.conf import settings
@@ -139,6 +140,9 @@ def _execute_analysis_run(
 def _extract_zip(zip_path: Path, target_dir: Path) -> int:
     max_files = settings.ANALYSIS_MAX_EXTRACTED_FILES
     max_bytes = settings.ANALYSIS_MAX_EXTRACTED_BYTES
+    max_depth = int(getattr(settings, 'ANALYSIS_MAX_ZIP_PATH_DEPTH', 12))
+    max_compression_ratio = float(getattr(settings, 'ANALYSIS_MAX_ZIP_COMPRESSION_RATIO', 100.0))
+    max_entry_bytes = int(getattr(settings, 'ANALYSIS_MAX_ZIP_ENTRY_BYTES', max_bytes))
 
     extracted_count = 0
     extracted_size = 0
@@ -146,19 +150,30 @@ def _extract_zip(zip_path: Path, target_dir: Path) -> int:
         for member in archive.infolist():
             if member.is_dir():
                 continue
+            if _is_unsafe_zip_member(member):
+                raise RuntimeError('ZIP inválido: contiene entradas no permitidas (enlace/sistema).')
             member_path = PurePosixPath(member.filename)
             if member_path.is_absolute() or '..' in member_path.parts:
                 raise RuntimeError('ZIP inválido: ruta insegura detectada.')
+            clean_parts = [part for part in member_path.parts if part and part != '.']
+            if len(clean_parts) > max_depth:
+                raise RuntimeError('ZIP inválido: la profundidad de rutas excede el máximo permitido.')
             if member_path.suffix.lower() != '.java':
                 continue
+            if member.file_size > max_entry_bytes:
+                raise RuntimeError('ZIP inválido: un archivo excede el tamaño máximo permitido.')
+            compression_ratio = _compression_ratio(member)
+            if compression_ratio > max_compression_ratio:
+                raise RuntimeError('ZIP inválido: relación de compresión sospechosa detectada.')
             extracted_count += 1
             if extracted_count > max_files:
                 raise RuntimeError('ZIP excede el número máximo de archivos permitidos.')
-
-            content = archive.read(member)
-            extracted_size += len(content)
+            extracted_size += int(member.file_size)
             if extracted_size > max_bytes:
                 raise RuntimeError('ZIP excede el tamaño máximo permitido para extracción.')
+            content = archive.read(member)
+            if len(content) != int(member.file_size):
+                raise RuntimeError('ZIP inválido: tamaño real de archivo no coincide con metadatos.')
 
             destination = target_dir / Path(member.filename)
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -167,6 +182,21 @@ def _extract_zip(zip_path: Path, target_dir: Path) -> int:
     if extracted_count == 0:
         raise RuntimeError('No se encontraron archivos .java en el ZIP.')
     return extracted_count
+
+
+def _is_unsafe_zip_member(member: zipfile.ZipInfo) -> bool:
+    mode = (member.external_attr >> 16) & 0xFFFF
+    return stat.S_ISLNK(mode) or stat.S_ISCHR(mode) or stat.S_ISBLK(mode) or stat.S_ISFIFO(mode)
+
+
+def _compression_ratio(member: zipfile.ZipInfo) -> float:
+    file_size = int(member.file_size or 0)
+    compressed_size = int(member.compress_size or 0)
+    if file_size <= 0:
+        return 1.0
+    if compressed_size <= 0:
+        return float('inf')
+    return file_size / compressed_size
 
 
 def _normalize_file_path(raw_path: str) -> str:
