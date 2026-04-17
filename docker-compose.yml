@@ -2,38 +2,50 @@ version: '3.8'
 
 services:
   db:
-    image: postgres:16-alpine
-    container_name: codemio_postgres
+    image: mysql:${MYSQL_VERSION:-8.0}
+    container_name: ${DB_CONTAINER_NAME:-codemio_mysql}
     environment:
-      POSTGRES_DB: ${DB_NAME:-codemio_db}
-      POSTGRES_USER: ${DB_USER:-codemio_user}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-codemio_password}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - mysql_data:/var/lib/mysql
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-3306}:3306"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-codemio_user}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD}"]
+      interval: ${DB_HEALTHCHECK_INTERVAL:-10s}
+      timeout: ${DB_HEALTHCHECK_TIMEOUT:-5s}
+      retries: ${DB_HEALTHCHECK_RETRIES:-5}
 
   web:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: codemio_backend
-    command: python manage.py runserver 0.0.0.0:8000
+    container_name: ${WEB_CONTAINER_NAME:-codemio_backend}
+    command: python manage.py runserver 0.0.0.0:${WEB_PORT:-8000}
     volumes:
       - .:/app
     ports:
-      - "8000:8000"
+      - "${WEB_PORT:-8000}:${WEB_PORT:-8000}"
     environment:
-      - SECRET_KEY=${SECRET_KEY:-django-insecure-dev-key}
+      - SECRET_KEY=${SECRET_KEY}
       - DEBUG=${DEBUG:-True}
-      - DATABASE_URL=postgresql://${DB_USER:-codemio_user}:${DB_PASSWORD:-codemio_password}@db:5432/${DB_NAME:-codemio_db}
-      - ALLOWED_HOSTS=localhost,127.0.0.1
-      - CORS_ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
+      - DATABASE_URL=mysql://${DB_USER}:${DB_PASSWORD}@db:3306/${DB_NAME}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:3000}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_COGNITO_REGION=${AWS_COGNITO_REGION}
+      - AWS_COGNITO_USER_POOL_ID=${AWS_COGNITO_USER_POOL_ID}
+      - AWS_COGNITO_CLIENT_ID=${AWS_COGNITO_CLIENT_ID}
+      - AWS_COGNITO_CLIENT_SECRET=${AWS_COGNITO_CLIENT_SECRET}
+      - AWS_COGNITO_ISSUER=${AWS_COGNITO_ISSUER}
+      - AWS_COGNITO_DOMAIN=${AWS_COGNITO_DOMAIN}
+      - PROFILE_PAYLOAD_KEY_ID=${PROFILE_PAYLOAD_KEY_ID}
+      - PROFILE_PAYLOAD_RSA_PUBLIC_KEY_PEM=${PROFILE_PAYLOAD_RSA_PUBLIC_KEY_PEM}
+      - PROFILE_PAYLOAD_RSA_PRIVATE_KEY_PEM=${PROFILE_PAYLOAD_RSA_PRIVATE_KEY_PEM}
     depends_on:
       db:
         condition: service_healthy
@@ -41,4 +53,4 @@ services:
     tty: true
 
 volumes:
-  postgres_data:
+  mysql_data:

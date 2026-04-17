@@ -5,7 +5,7 @@
 ![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![Django](https://img.shields.io/badge/Django-5.2.11-092E20?style=for-the-badge&logo=django&logoColor=white)
 ![DRF](https://img.shields.io/badge/DRF-3.15.2-ff1709?style=for-the-badge&logo=django&logoColor=white)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-316192?style=for-the-badge&logo=postgresql&logoColor=white)
+![MYSQL](https://img.shields.io/badge/MySQL-8.0-4479A1?style=for-the-badge&logo=mysql&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Latest-2496ED?style=for-the-badge&logo=docker&logoColor=white)
 ![Gunicorn](https://img.shields.io/badge/Gunicorn-22.0.0-499848?style=for-the-badge&logo=gunicorn&logoColor=white)
 
@@ -22,7 +22,7 @@
 El proyecto consiste en el desarrollo de una aplicación web que permita a los usuarios:
 
 - **Subir código Java:** Carga de archivos `.java` individuales o proyectos completos comprimidos en formato `.zip`
-- **Análisis automático:** El backend procesa los archivos con **SonarCloud Runtime** para detectar hallazgos de calidad y seguridad
+- **Análisis automático:** El backend procesa los archivos con **PMD** y **SpotBugs** para detectar hallazgos de calidad y buenas prácticas
 - **Dashboard de métricas:** Generación de dashboard por proyecto mostrando los resultados del análisis
 - **Evaluación de calidad:** Las métricas son evaluadas contra rangos definidos para determinar si cumplen buenas prácticas o representan posibles problemas de diseño
 - **Gestión de proyectos:** Sistema completo de CRUD para proyectos y archivos
@@ -50,7 +50,7 @@ El proyecto consiste en el desarrollo de una aplicación web que permita a los u
 | **API** | Django REST Framework | 3.15.2 | Construcción de API REST |
 | **Base de Datos** | PostgreSQL | 16+ | Persistencia de datos |
 | **Servidor WSGI** | Gunicorn | 22.0.0 | Servidor de producción |
-| **Análisis de Código** | SonarCloud | Cloud + Scanner CLI | Análisis estático de Java |
+| **Análisis de Código** | PMD + SpotBugs | CLI tools | Análisis estático de Java |
 | **Contenedores** | Docker | Latest | Contenedorización |
 | **CI/CD** | GitHub Actions | - | Integración continua |
 | **Despliegue** | Render | - | Hosting y despliegue |
@@ -162,33 +162,14 @@ ALLOWED_HOSTS=localhost,127.0.0.1
 # Para desarrollo con PostgreSQL
 DATABASE_URL=postgresql://user:password@localhost:5432/codemio_db
 
-# SonarCloud runtime
-SONAR_HOST_URL=https://sonarcloud.io
-SONAR_ORGANIZATION=your-org
-SONAR_TOKEN=your-sonar-token
-SONAR_SCANNER_COMMAND=sonar-scanner
-SONAR_RUNTIME_PROJECT_PREFIX=codemio-runtime
+# Análisis estático (valores portables via PATH)
+ANALYSIS_PMD_COMMAND=pmd
+ANALYSIS_SPOTBUGS_COMMAND=spotbugs
+ANALYSIS_JAVAC_COMMAND=javac
 ```
 
-Si tu entorno no resuelve `sonar-scanner` por `PATH`, define una ruta absoluta solo en tu `.env` local
-sin subir rutas específicas de sistema al repositorio.
-
-### Variables SonarCloud recomendadas para runtime
-
-Además de las variables base, puedes configurar límites de tiempo para robustez operativa:
-
-```env
-SONAR_HOST_URL=https://sonarcloud.io
-SONAR_ORGANIZATION=your-org
-SONAR_TOKEN=your-sonar-token
-SONAR_SCANNER_COMMAND=sonar-scanner
-SONAR_RUNTIME_PROJECT_PREFIX=codemio-runtime
-SONAR_API_TIMEOUT_SECONDS=30
-SONAR_QUALITYGATE_TIMEOUT_SECONDS=180
-ANALYSIS_TOOL_TIMEOUT_SECONDS=120
-```
-
-> `SONAR_TOKEN` se inyecta por variable de entorno al scanner; no se pasa en argumentos CLI para evitar exposición accidental en logs de comandos.
+Si tu entorno no resuelve esos comandos por `PATH`, define rutas absolutas solo en tu `.env` local
+(por ejemplo `/opt/homebrew/bin/pmd`), sin subir rutas específicas de sistema al repositorio.
 
 **Generar SECRET_KEY:**
 ```bash
@@ -248,7 +229,7 @@ services:
     image: postgres:16
     environment:
       POSTGRES_DB: codemio_db
-      POSTGRES_USER: codemio_user
+      /* Lines 232-233 omitted */
       POSTGRES_PASSWORD: codemio_password
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -265,8 +246,6 @@ services:
     environment:
       - DATABASE_URL=postgresql://codemio_user:codemio_password@db:5432/codemio_db
       - DEBUG=True
-    depends_on:
-      - db
 
 volumes:
   postgres_data:
@@ -369,49 +348,12 @@ Cada push a la rama `main` activará:
 
 ---
 
-## 🔄 Flujo Runtime SonarCloud
-
-1. El cliente sube `.java` o `.zip` al endpoint `/analysis/runs/`.
-2. La API crea un `AnalysisRun` en estado `PENDING` y dispara el análisis asíncrono.
-3. El worker prepara un workspace temporal y un `sonar-project.properties` efímero por ejecución.
-4. Se ejecuta `sonar-scanner` con `SONAR_TOKEN` en variables de entorno.
-5. Para cargas `.zip`, el backend extrae de forma segura solo archivos `.java`; el scanner runtime incluye `**/*.java` y excluye `**/*.zip`.
-6. Se consultan issues y métricas desde SonarCloud API.
-7. Las respuestas de error se sanitizan para evitar exposición accidental de tokens en logs.
-8. Se persisten hallazgos y métricas normalizadas en `AnalysisRun` / `AnalysisFinding`.
-
----
-
-## 🔐 Seguridad de Tokens y JWT
-
-- `SONAR_TOKEN` vive solo en variables de entorno del backend y en `GitHub Secrets`.
-- El token nunca se pasa como argumento CLI; se inyecta por entorno al scanner.
-- El frontend no almacena ni envía secretos de SonarCloud.
-- Las peticiones del frontend al backend envían `Authorization: Bearer <JWT>` para endpoints protegidos de análisis.
-- En `UsuarioProfile`, los límites de nombre/edad son constantes de código (sin variables `PROFILE_NAME_*` / `PROFILE_AGE_*`).
-
----
-
-## ☁️ SonarCloud en CI
-
-El repositorio incluye workflow dedicado en `.github/workflows/sonarcloud.yml`.
-
-- Configura `SONAR_TOKEN` en GitHub Secrets.
-- Verifica `SONAR_ORGANIZATION` y `sonar-project.properties` antes de activar en ramas protegidas.
-- Mantén este flujo separado de build/test para aislar fallos de calidad de código.
-
----
-
 ```bash
 # Ejecutar todos los tests
 python manage.py test
 
 # Ejecutar tests de una app específica
 python manage.py test app_name
-
-# Tests del flujo SonarCloud runtime
-python manage.py test analysis.tests.test_sonar_runtime_service
-python manage.py test analysis.tests.test_analysis_runs_api
 
 # Con cobertura
 pip install coverage
@@ -426,9 +368,6 @@ coverage report
 - Nunca commitees el archivo `.env`
 - Usa `SECRET_KEY` diferentes para desarrollo y producción
 - Mantén `DEBUG=False` en producción
-- No imprimas ni persistas tokens de SonarCloud en logs de error
-- Define rotación periódica de `SONAR_TOKEN` en CI/CD
-- Si SonarCloud falla con 401/403, rota token y valida permisos de organización/proyecto
 - Actualiza dependencias regularmente
 - Revisa las alertas de seguridad de GitHub
 
@@ -495,55 +434,32 @@ Desarrollado por el equipo de CodeMio - UTEZ
 <table>
   <tr>
     <th>Nombre</th>
-    <th>Rol(es)</th>
+    /* Lines 439-440 omitted */
     <th>GitHub</th>
   </tr>
   <tr>
     <td><strong>Miguel Angel Sanchez Perez</strong></td>
-    <td>
-      🔐 Administrador de Bases de Datos y Seguridad<br/>
-      🧪 Lead de Integración y QA
-    </td>
-    <td>
-      <a href="https://github.com/MiguelSP040">
-        <img src="https://img.shields.io/badge/GitHub-MiguelSP040-181717?style=flat-square&logo=github" alt="MiguelSP040"/>
-      </a>
+    /* Lines 444-452 omitted */
     </td>
   </tr>
   <tr>
     <td><strong>Martin Antonio Joaquín Landa</strong></td>
-    <td>⚙️ Desarrollador Backend</td>
-    <td>
-      <a href="https://github.com/M4ltin12">
-        <img src="https://img.shields.io/badge/GitHub-M4ltin12-181717?style=flat-square&logo=github" alt="M4ltin12"/>
-      </a>
+    /* Lines 456-461 omitted */
     </td>
   </tr>
   <tr>
     <td><strong>Daniela Carrate Bahena</strong></td>
-    <td>🎨 Frontend & UX</td>
-    <td>
-      <a href="https://github.com/danielita05">
-        <img src="https://img.shields.io/badge/GitHub-danielita05-181717?style=flat-square&logo=github" alt="danielita05"/>
-      </a>
+    /* Lines 465-470 omitted */
     </td>
   </tr>
   <tr>
     <td><strong>Luis David Rojas Vargas</strong></td>
-    <td>💻 Desarrollador JS</td>
-    <td>
-      <a href="https://github.com/DavidReds7">
-        <img src="https://img.shields.io/badge/GitHub-DavidReds7-181717?style=flat-square&logo=github" alt="DavidReds7"/>
-      </a>
+    /* Lines 474-479 omitted */
     </td>
   </tr>
   <tr>
     <td><strong>Luis Ignacio Valera Aguilar</strong></td>
-    <td>📊 Business Intelligence</td>
-    <td>
-      <a href="https://github.com/IgnacioValera">
-        <img src="https://img.shields.io/badge/GitHub-IgnacioValera-181717?style=flat-square&logo=github" alt="IgnacioValera"/>
-      </a>
+    /* Lines 483-488 omitted */
     </td>
   </tr>
 </table>

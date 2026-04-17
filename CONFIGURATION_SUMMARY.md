@@ -12,7 +12,7 @@ Este documento explica todos los archivos de configuración creados para el proy
 **Contenido principal:**
 - Django 5.2.11 (Framework web)
 - Django REST Framework 3.15.2 (API REST)
-- psycopg2-binary 2.9.10 (Conector PostgreSQL)
+- PyMySQL 1.1.1 (Conector MySQL)
 - gunicorn 22.0.0 (Servidor WSGI para producción)
 - django-cors-headers 4.4.0 (Manejo de CORS)
 - python-decouple 3.8 (Variables de entorno)
@@ -33,7 +33,7 @@ pip install -r requirements.txt
 **Características:**
 - **Multi-stage build** para optimizar el tamaño de la imagen
 - Imagen base: Python 3.12-slim
-- Instala dependencias del sistema para PostgreSQL
+- Instala dependencias del sistema para MySQL
 - Copia código del proyecto
 - Ejecuta migraciones automáticamente al iniciar
 - Usa Gunicorn como servidor WSGI
@@ -71,7 +71,7 @@ docker run -p 8000:8000 codemio-backend
 **Propósito:** Orquesta múltiples contenedores para desarrollo local.
 
 **Servicios definidos:**
-1. **db:** PostgreSQL 16 con healthcheck
+1. **db:** MySQL 8.0 con healthcheck
 2. **web:** Aplicación Django que depende de db
 
 **Uso:**
@@ -108,7 +108,7 @@ docker-compose down
 - `SECRET_KEY`: Clave secreta de Django
 - `DEBUG`: Modo debug (True/False)
 - `ALLOWED_HOSTS`: Hosts permitidos
-- `DATABASE_URL`: URL de conexión a PostgreSQL
+- `DATABASE_URL`: URL de conexión a MySQL
 - `CORS_ALLOWED_ORIGINS`: Orígenes CORS permitidos
 - `PORT`: Puerto de la aplicación
 
@@ -128,7 +128,7 @@ docker-compose down
 
 #### 1. **test**
 - Corre en Ubuntu latest
-- Levanta PostgreSQL en service container
+- Levanta MySQL en service container
 - Ejecuta linting con flake8
 - Ejecuta migraciones
 - Ejecuta tests
@@ -296,7 +296,7 @@ chmod +x setup.sh
 - Comandos Django (migraciones, testing, etc.)
 - Comandos Docker y Docker Compose
 - Comandos Git con Conventional Commits
-- Comandos PostgreSQL
+- Comandos MySQL
 - Troubleshooting común
 
 ### `CONFIGURATION_SUMMARY.md`
@@ -370,7 +370,7 @@ REST_FRAMEWORK = {
 ```
 
 **Beneficios:**
-- Compatible con desarrollo local (SQLite) y producción (PostgreSQL)
+- Compatible con desarrollo local (SQLite) y producción (MySQL)
 - Usa variables de entorno para configuración sensible
 - Listo para despliegue en Render
 - Configuración CORS para frontend
@@ -520,7 +520,7 @@ git push origin main
 
 5. **Despliegue:**
    - Configurar Render
-   - Conectar con base de datos PostgreSQL
+   - Conectar con base de datos MySQL
    - Configurar CORS con frontend
    - Monitoreo y logs
 
