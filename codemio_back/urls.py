@@ -1,6 +1,8 @@
 from django.contrib import admin
 from django.urls import include, path, re_path
 from authentication.views import (
+    AdminUsersDetailView,
+    AdminUsersListView,
     AuthConfirmForgotPasswordView,
     AuthForgotPasswordValidateCodeView,
     AuthForgotPasswordView,
@@ -42,6 +44,7 @@ schema_view = get_schema_view(
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('projects/', include('projects.urls')),
+    path('analysis/', include('analysis.urls')),
     path('auth/login/', AuthLoginView.as_view(), name='auth-login'),
     path('auth/logout/', AuthLogoutView.as_view(), name='auth-logout'),
     path('auth/refresh/', AuthRefreshView.as_view(), name='auth-refresh'),
@@ -61,6 +64,8 @@ urlpatterns = [
     path('auth/register/', AuthRegisterView.as_view(), name='auth-register'),
     path('auth/payload-public-key/', ProfilePayloadPublicKeyView.as_view(), name='auth-payload-public-key'),
     path('users/me/', UsersMeView.as_view(), name='users-me'),
+    path('users/', AdminUsersListView.as_view(), name='admin-users-list'),
+    path('users/<int:user_id>/', AdminUsersDetailView.as_view(), name='admin-users-detail'),
     re_path(
         r'^swagger(?P<format>\.json|\.yaml)$',
         schema_view.without_ui(cache_timeout=0),

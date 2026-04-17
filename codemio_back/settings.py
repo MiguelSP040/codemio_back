@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     # Local apps
     'authentication',
     'projects',
+    'analysis',
 ]
 
 MIDDLEWARE = [
@@ -197,7 +198,26 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 10,
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.ScopedRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        # Sensibles (anti brute-force). Ajustar según entorno.
+        'auth_send': '10/min',
+        'auth_validate': '10/min',
+        'auth_login': '10/min',
+        'auth_register': '10/min',
+        'auth_forgot_password': '5/min',
+        'auth_forgot_validate': '10/min',
+        'auth_confirm_forgot': '5/min',
+    },
 }
+
+# Validaciones de perfil (usuarios) — fijas (no por entorno)
+PROFILE_NAME_MIN_LEN = 2
+PROFILE_NAME_MAX_LEN = 100
+PROFILE_AGE_MIN = 1
+PROFILE_AGE_MAX = 120
 
 AWS_ACCESS_KEY_ID = config('AWS_ACCESS_KEY_ID', default='')
 AWS_SECRET_ACCESS_KEY = config('AWS_SECRET_ACCESS_KEY', default='')
@@ -210,3 +230,15 @@ AWS_COGNITO_DOMAIN = config('AWS_COGNITO_DOMAIN', default='')
 PROFILE_PAYLOAD_KEY_ID = config('PROFILE_PAYLOAD_KEY_ID', default='profile-v1')
 PROFILE_PAYLOAD_RSA_PUBLIC_KEY_PEM = config('PROFILE_PAYLOAD_RSA_PUBLIC_KEY_PEM', default='')
 PROFILE_PAYLOAD_RSA_PRIVATE_KEY_PEM = config('PROFILE_PAYLOAD_RSA_PRIVATE_KEY_PEM', default='')
+
+ANALYSIS_MAX_UPLOAD_BYTES = config('ANALYSIS_MAX_UPLOAD_BYTES', default=10485760, cast=int)
+ANALYSIS_MAX_EXTRACTED_BYTES = config('ANALYSIS_MAX_EXTRACTED_BYTES', default=31457280, cast=int)
+ANALYSIS_MAX_EXTRACTED_FILES = config('ANALYSIS_MAX_EXTRACTED_FILES', default=500, cast=int)
+ANALYSIS_TOOL_TIMEOUT_SECONDS = config('ANALYSIS_TOOL_TIMEOUT_SECONDS', default=120, cast=int)
+ANALYSIS_PMD_COMMAND = config('ANALYSIS_PMD_COMMAND', default='pmd')
+ANALYSIS_PMD_RULESET = config(
+    'ANALYSIS_PMD_RULESET',
+    default='category/java/bestpractices.xml,category/java/errorprone.xml',
+)
+ANALYSIS_SPOTBUGS_COMMAND = config('ANALYSIS_SPOTBUGS_COMMAND', default='spotbugs')
+ANALYSIS_JAVAC_COMMAND = config('ANALYSIS_JAVAC_COMMAND', default='javac')

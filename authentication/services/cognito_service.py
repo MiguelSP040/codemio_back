@@ -107,6 +107,37 @@ class CognitoService:
             self._log_client_error('AdminGetUser', email, e)
             raise self._map_client_error(e) from e
 
+    def admin_get_user_optional(self, email: str) -> dict[str, Any] | None:
+
+        return self._admin_get_user_optional(email)
+
+    def admin_update_user_attributes(self, email: str, attributes: dict[str, str]) -> dict[str, Any]:
+
+        try:
+            response = self.client.admin_update_user_attributes(
+                UserPoolId=self.user_pool_id,
+                Username=email,
+                UserAttributes=[{'Name': k, 'Value': v} for k, v in attributes.items()],
+            )
+            self._log_success('AdminUpdateUserAttributes', email, response)
+            return response
+        except ClientError as e:
+            self._log_client_error('AdminUpdateUserAttributes', email, e)
+            raise self._map_client_error(e) from e
+
+    def admin_delete_user(self, email: str) -> dict[str, Any]:
+
+        try:
+            response = self.client.admin_delete_user(UserPoolId=self.user_pool_id, Username=email)
+            self._log_success('AdminDeleteUser', email, response)
+            return response
+        except ClientError as e:
+            # Si no existe, tratamos como idempotente para el flujo de borrado local.
+            if e.response.get('Error', {}).get('Code') == 'UserNotFoundException':
+                return {'deleted': False, 'reason': 'UserNotFoundException'}
+            self._log_client_error('AdminDeleteUser', email, e)
+            raise self._map_client_error(e) from e
+
     def _user_status_optional(self, email: str) -> str | None:
         r = self._admin_get_user_optional(email)
         return r.get('UserStatus') if r else None

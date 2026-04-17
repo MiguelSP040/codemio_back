@@ -14,6 +14,8 @@ class ProjectListCreateView(ListCreateAPIView):
     serializer_class = ProjectSerializer
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return Project.objects.none()
         return Project.objects.filter(user=self.request.user.usuario, state=ProjectState.ACTIVE)
 
     def perform_create(self, serializer):
@@ -26,6 +28,8 @@ class ProjectDetailView(RetrieveUpdateDestroyAPIView):
     serializer_class = ProjectSerializer
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return Project.objects.none()
         return Project.objects.filter(user=self.request.user.usuario, state=ProjectState.ACTIVE)
 
     def destroy(self, request, *args, **kwargs):
