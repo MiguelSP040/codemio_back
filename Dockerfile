@@ -42,14 +42,13 @@ FROM dependencies as production
 # Copy project files
 COPY . .
 
-# Collect static files
-RUN python manage.py collectstatic --noinput
-
 # Expose the port that Render will provide
 EXPOSE ${PORT:-8000}
 
-# Create a startup script that runs migrations and starts gunicorn
+# Create a startup script that collects static files, runs migrations and starts gunicorn
 RUN echo '#!/bin/bash\n\
+echo "Collecting static files..."\n\
+python manage.py collectstatic --noinput\n\
 echo "Running database migrations..."\n\
 python manage.py migrate --noinput\n\
 echo "Starting Gunicorn..."\n\
