@@ -17,7 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     wget \
     unzip \
-    openjdk-17-jre-headless \
+    default-jre-headless \
     && rm -rf /var/lib/apt/lists/* \
     # Download and install SonarScanner
     && wget -q https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006-linux.zip -O /tmp/sonar-scanner.zip \
