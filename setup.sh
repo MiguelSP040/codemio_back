@@ -20,7 +20,7 @@ fi
 echo -e "${GREEN}✓${NC} Python 3 encontrado: $(python3 --version)"
 
 # Crear entorno virtual si no existe
-if [ ! -d "venv" ]; then
+if [[ ! -d "venv" ]]; then
     echo "📦 Creando entorno virtual..."
     python3 -m venv venv
     echo -e "${GREEN}✓${NC} Entorno virtual creado"
@@ -41,7 +41,7 @@ echo "📦 Instalando dependencias..."
 pip install -r requirements.txt
 
 # Crear archivo .env si no existe
-if [ ! -f ".env" ]; then
+if [[ ! -f ".env" ]]; then
     echo "⚙️  Creando archivo .env desde .env.example..."
     cp .env.example .env
     

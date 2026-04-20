@@ -2,8 +2,8 @@ from django.db import migrations, models
 
 
 def fill_null_cognito_sub_with_empty_string(apps, schema_editor):
-    CognitoUser = apps.get_model('authentication', 'CognitoUser')
-    CognitoUser.objects.filter(cognito_sub__isnull=True).update(cognito_sub='')
+    cognito_user_model = apps.get_model('authentication', 'CognitoUser')
+    cognito_user_model.objects.filter(cognito_sub__isnull=True).update(cognito_sub='')
 
 
 class Migration(migrations.Migration):
