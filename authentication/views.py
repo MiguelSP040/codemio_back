@@ -31,6 +31,9 @@ from authentication.serializers import (
 )
 from authentication.services.cognito_service import CognitoServiceError
 
+_EMAIL_EXAMPLE = 'user@example.com'
+_MSG_USUARIO_NO_ENCONTRADO = 'Usuario no encontrado.'
+
 _COGNITO_ERROR = openapi.Schema(
     type=openapi.TYPE_OBJECT,
     properties={
@@ -60,7 +63,7 @@ _AUTH_SEND_201 = openapi.Schema(
     type=openapi.TYPE_OBJECT,
     properties={
         'detail': openapi.Schema(type=openapi.TYPE_STRING),
-        'email': openapi.Schema(type=openapi.TYPE_STRING, example='user@example.com'),
+        'email': openapi.Schema(type=openapi.TYPE_STRING, example=_EMAIL_EXAMPLE),
         'cognito_sub': openapi.Schema(
             type=openapi.TYPE_STRING,
             description='Identificador estable en Cognito cuando está disponible.',
@@ -78,7 +81,7 @@ _AUTH_VALIDATE_200 = openapi.Schema(
     type=openapi.TYPE_OBJECT,
     properties={
         'detail': openapi.Schema(type=openapi.TYPE_STRING),
-        'email': openapi.Schema(type=openapi.TYPE_STRING, example='user@example.com'),
+        'email': openapi.Schema(type=openapi.TYPE_STRING, example=_EMAIL_EXAMPLE),
         'already_verified': openapi.Schema(
             type=openapi.TYPE_BOOLEAN,
             description='`true` si el correo ya estaba confirmado en Cognito (idempotente).',
@@ -276,7 +279,7 @@ _AUTH_FORGOT_PASSWORD_200 = openapi.Schema(
     type=openapi.TYPE_OBJECT,
     properties={
         'detail': openapi.Schema(type=openapi.TYPE_STRING),
-        'email': openapi.Schema(type=openapi.TYPE_STRING, example='user@example.com'),
+        'email': openapi.Schema(type=openapi.TYPE_STRING, example=_EMAIL_EXAMPLE),
     },
 )
 
@@ -797,7 +800,7 @@ class AdminUsersDetailView(APIView):
         try:
             usuario = Usuario.objects.get(id=user_id)
         except Usuario.DoesNotExist:
-            return Response({'detail': 'Usuario no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+            return Response({'detail': _MSG_USUARIO_NO_ENCONTRADO}, status=status.HTTP_404_NOT_FOUND)
         ctrl = AdminUsersController()
         payload = AdminUsuarioReadSerializer(usuario).data
         payload['cognito'] = ctrl.get_cognito_state(usuario.correo)
@@ -815,7 +818,7 @@ class AdminUsersDetailView(APIView):
         try:
             usuario = Usuario.objects.get(id=user_id)
         except Usuario.DoesNotExist:
-            return Response({'detail': 'Usuario no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+            return Response({'detail': _MSG_USUARIO_NO_ENCONTRADO}, status=status.HTTP_404_NOT_FOUND)
 
         allowed = {'nombre', 'edad', 'perfil_github'}
         unknown = set(request.data.keys()) - allowed
@@ -824,7 +827,7 @@ class AdminUsersDetailView(APIView):
                 {
                     'code': 'AdminUserPatchInvalidFields',
                     'detail': 'Solo se permiten los campos: nombre, edad, perfil_github.',
-                    'invalid_fields': sorted(list(unknown)),
+                    'invalid_fields': sorted(unknown),
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -853,7 +856,7 @@ class AdminUsersDetailView(APIView):
         try:
             usuario = Usuario.objects.get(id=user_id)
         except Usuario.DoesNotExist:
-            return Response({'detail': 'Usuario no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+            return Response({'detail': _MSG_USUARIO_NO_ENCONTRADO}, status=status.HTTP_404_NOT_FOUND)
 
         ctrl = AdminUsersController()
         ctrl.delete_in_cognito(usuario.correo)

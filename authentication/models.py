@@ -16,7 +16,7 @@ class CognitoUser(models.Model):
 
     email = models.EmailField(max_length=254, unique=True, db_index=True)
     username = models.CharField(max_length=255)
-    cognito_sub = models.CharField(max_length=128, null=True, blank=True, db_index=True)
+    cognito_sub = models.CharField(max_length=128, blank=True, db_index=True)
     status = models.CharField(
         max_length=20,
         choices=CognitoUserStatus.choices,
@@ -33,7 +33,7 @@ class CognitoUser(models.Model):
 
 class Usuario(models.Model):
 
-    nombre = models.CharField(max_length=255, null=True, blank=True)
+    nombre = models.CharField(max_length=255, blank=True)
     edad = models.IntegerField(null=True, blank=True)
     correo = models.EmailField(max_length=254, unique=True, db_index=True)
     sub_cognito = models.CharField(
@@ -43,7 +43,7 @@ class Usuario(models.Model):
         blank=True,
         db_index=True,
     )
-    perfil_github = models.CharField(max_length=255, null=True, blank=True)
+    perfil_github = models.CharField(max_length=255, blank=True)
     rol = models.CharField(max_length=50, choices=RolUsuario.choices, default=RolUsuario.USER)
     fecha_registro = models.DateTimeField(auto_now_add=True)
 

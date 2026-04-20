@@ -173,6 +173,12 @@ CORS_ALLOWED_ORIGINS = config(
 
 CORS_ALLOW_CREDENTIALS = True
 
+THROTTLE_RATE_5_PER_MIN = '5/min'
+THROTTLE_RATE_10_PER_MIN = '10/min'
+THROTTLE_RATE_12_PER_MIN = '12/min'
+THROTTLE_RATE_20_PER_MIN = '20/min'
+THROTTLE_RATE_240_PER_MIN = '240/min'
+
 SWAGGER_SETTINGS = {
     'USE_SESSION_AUTH': False,
     'TAGS_SORTER': 'alpha',
@@ -205,17 +211,17 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.ScopedRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'auth_send': '10/min',
-        'auth_validate': '10/min',
-        'auth_login': '10/min',
-        'auth_register': '10/min',
-        'auth_refresh': '12/min',
-        'auth_logout': '20/min',
-        'auth_forgot_validate': '10/min',
-        'auth_confirm_forgot': '5/min',
-        'analysis_runs': '20/min',
-        'analysis_runs_write': '20/min',
-        'analysis_runs_read': '240/min',
+        'auth_send': THROTTLE_RATE_10_PER_MIN,
+        'auth_validate': THROTTLE_RATE_10_PER_MIN,
+        'auth_login': THROTTLE_RATE_10_PER_MIN,
+        'auth_register': THROTTLE_RATE_10_PER_MIN,
+        'auth_refresh': THROTTLE_RATE_12_PER_MIN,
+        'auth_logout': THROTTLE_RATE_20_PER_MIN,
+        'auth_forgot_validate': THROTTLE_RATE_10_PER_MIN,
+        'auth_confirm_forgot': THROTTLE_RATE_5_PER_MIN,
+        'analysis_runs': THROTTLE_RATE_20_PER_MIN,
+        'analysis_runs_write': THROTTLE_RATE_20_PER_MIN,
+        'analysis_runs_read': THROTTLE_RATE_240_PER_MIN,
     },
 }
 

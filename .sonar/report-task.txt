@@ -2,5 +2,5 @@ projectKey=codemio_back
 serverUrl=http://localhost:9000
 serverVersion=26.3.0.120487
 dashboardUrl=http://localhost:9000/dashboard?id=codemio_back
-ceTaskId=e58bb109-d199-4d24-9597-28db400fcc2d
-ceTaskUrl=http://localhost:9000/api/ce/task?id=e58bb109-d199-4d24-9597-28db400fcc2d
+ceTaskId=65cdd0b0-6543-4d6a-b01c-111b05bf9064
+ceTaskUrl=http://localhost:9000/api/ce/task?id=65cdd0b0-6543-4d6a-b01c-111b05bf9064

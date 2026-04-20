@@ -47,6 +47,16 @@ class CognitoJWTAuthentication(BaseAuthentication):
         return 'Bearer'
 
     def authenticate(self, request):
+        raw_token = self._extract_bearer_token(request)
+        issuer, client_id = self._get_cognito_config()
+        signing_key = self._get_signing_key(raw_token, issuer)
+        payload = self._decode_signed_payload(raw_token, signing_key, issuer)
+        self._validate_payload(payload, client_id)
+        usuario = self._get_local_user(payload)
+
+        return (CognitoPrincipal(usuario), raw_token)
+
+    def _extract_bearer_token(self, request) -> str:
         raw_auth = request.META.get('HTTP_AUTHORIZATION')
         if raw_auth is None or not str(raw_auth).strip():
             raise AuthenticationFailed(_MSG_NO_HEADER)
@@ -61,33 +71,27 @@ class CognitoJWTAuthentication(BaseAuthentication):
         raw_token = header[len(prefix) :].strip()
         if not raw_token:
             raise AuthenticationFailed(_MSG_EMPTY_TOKEN)
+        return raw_token
 
+    def _get_cognito_config(self) -> tuple[str, str]:
         issuer = (getattr(settings, 'AWS_COGNITO_ISSUER', None) or '').strip().rstrip('/')
         client_id = (getattr(settings, 'AWS_COGNITO_CLIENT_ID', None) or '').strip()
         if not issuer or not client_id:
             logger.error('AWS_COGNITO_ISSUER o AWS_COGNITO_CLIENT_ID no configurados.')
             raise AuthenticationFailed('Autenticación Cognito no configurada en el servidor.')
+        return issuer, client_id
 
-        try:
-            jwt.decode(token, key, algorithms="HS256")
-        except jwt.DecodeError as e:
-            raise AuthenticationFailed('Token JWT mal formado.') from e
-
-        token_use = unverified.get('token_use')
-        if token_use == 'id':
-            raise AuthenticationFailed(_MSG_ID_TOKEN)
-        if token_use != 'access':
-            raise AuthenticationFailed(_MSG_NOT_ACCESS)
-
+    def _get_signing_key(self, raw_token: str, issuer: str):
         try:
             jwk_client = _jwks_client_for_issuer(issuer)
-            signing_key = jwk_client.get_signing_key_from_jwt(raw_token)
+            return jwk_client.get_signing_key_from_jwt(raw_token)
         except Exception as e:
             logger.warning('No se pudo obtener clave JWKS: %s', e)
             raise AuthenticationFailed('No se pudo validar el token (JWKS).') from e
 
+    def _decode_signed_payload(self, raw_token: str, signing_key, issuer: str) -> dict:
         try:
-            payload = jwt.decode(
+            return jwt.decode(
                 raw_token,
                 signing_key.key,
                 algorithms=['RS256'],
@@ -99,19 +103,23 @@ class CognitoJWTAuthentication(BaseAuthentication):
         except jwt.InvalidTokenError as e:
             raise AuthenticationFailed('Token inválido o firma incorrecta.') from e
 
+    def _validate_payload(self, payload: dict, client_id: str) -> None:
         if payload.get('client_id') != client_id:
             raise AuthenticationFailed('El access_token no corresponde al cliente de esta API.')
 
-        if payload.get('token_use') != 'access':
+        token_use = payload.get('token_use')
+        if token_use == 'id':
+            raise AuthenticationFailed(_MSG_ID_TOKEN)
+        if token_use != 'access':
             raise AuthenticationFailed(_MSG_NOT_ACCESS)
 
         sub = (payload.get('sub') or '').strip()
         if not sub:
             raise AuthenticationFailed('El access_token no incluye subject (sub).')
 
+    def _get_local_user(self, payload: dict) -> Usuario:
+        sub = (payload.get('sub') or '').strip()
         try:
-            usuario = Usuario.objects.get(sub_cognito=sub)
+            return Usuario.objects.get(sub_cognito=sub)
         except Usuario.DoesNotExist as e:
             raise AuthenticationFailed('No existe perfil local para este usuario.') from e
-
-        return (CognitoPrincipal(usuario), raw_token)
