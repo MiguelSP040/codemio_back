@@ -39,8 +39,16 @@ RUN pip install --upgrade pip && \
 # Stage 3: Production image
 FROM dependencies as production
 
-# Copy project files
-COPY . .
+# Copy only runtime files required by the app.
+COPY manage.py ./
+COPY codemio_back/ ./codemio_back/
+COPY authentication/ ./authentication/
+COPY analysis/ ./analysis/
+COPY projects/ ./projects/
+
+# Run the app with a non-root user.
+RUN groupadd --system app && useradd --system --gid app --home /app --shell /usr/sbin/nologin app \
+    && chown -R app:app /app
 
 # Expose the port that Render will provide
 EXPOSE ${PORT:-8000}
@@ -54,6 +62,8 @@ python manage.py migrate --noinput\n\
 echo "Starting Gunicorn..."\n\
 exec gunicorn codemio_back.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers 4 --timeout 120 --access-logfile - --error-logfile -\n\
 ' > /app/start.sh && chmod +x /app/start.sh
+
+USER app
 
 # Use the startup script as entrypoint
 CMD ["/app/start.sh"]

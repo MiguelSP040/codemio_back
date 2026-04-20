@@ -1,18 +1,40 @@
 from rest_framework import serializers
 import bleach
 import re
+from html.parser import HTMLParser
 from authentication.models import Usuario
 
 _OTP_RE = re.compile(r'^\d{6}$')
 _GITHUB_URL_RE = re.compile(r'^https:\/\/github\.com\/[\w.-]+\/?$')
 _GITHUB_USERNAME_RE = re.compile(r'^[\w.-]{1,39}$')
-_HAS_HTML_TAG_RE = re.compile(r'<\s*\/?\s*[a-zA-Z][^>]*>')
 _CONTROL_CHARS_RE = re.compile(r'[\x00-\x1F\x7F]')
 # Límites funcionales fijos de perfil (no dependen de variables de entorno).
 PROFILE_NAME_MIN_LEN = 2
 PROFILE_NAME_MAX_LEN = 100
 PROFILE_AGE_MIN = 1
 PROFILE_AGE_MAX = 120
+
+
+class _HTMLTagDetector(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.has_tag = False
+
+    def handle_starttag(self, tag, attrs):  # noqa: D401
+        self.has_tag = True
+
+    def handle_endtag(self, tag):  # noqa: D401
+        self.has_tag = True
+
+    def handle_startendtag(self, tag, attrs):  # noqa: D401
+        self.has_tag = True
+
+
+def _has_html_tag(value: str) -> bool:
+    detector = _HTMLTagDetector()
+    detector.feed(value)
+    detector.close()
+    return detector.has_tag
 
 
 def _clean_text(value: str) -> str:
@@ -27,7 +49,7 @@ def _validate_nombre(value: str | None) -> str | None:
         return None
     if value == '':
         return None
-    if _HAS_HTML_TAG_RE.search(str(value)):
+    if _has_html_tag(str(value)):
         raise serializers.ValidationError('El nombre no puede contener etiquetas HTML.')
     cleaned = _clean_text(value)
     if cleaned == '':
@@ -61,7 +83,7 @@ def _validate_github(value: str | None) -> str | None:
     cleaned = _clean_text(value)
     if cleaned == '':
         return None
-    if _HAS_HTML_TAG_RE.search(str(value)):
+    if _has_html_tag(str(value)):
         raise serializers.ValidationError('El perfil de GitHub no puede contener etiquetas HTML.')
     if not re.fullmatch(r'[A-Za-z0-9._\-/:]+', cleaned):
         raise serializers.ValidationError('El perfil de GitHub contiene caracteres no permitidos.')
