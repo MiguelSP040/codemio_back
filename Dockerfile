@@ -1,5 +1,5 @@
 # Stage 1: Base image with Python
-FROM python:3.12-slim as base
+FROM python:3.12-slim AS base
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && ln -s /opt/sonar-scanner/bin/sonar-scanner /usr/local/bin/sonar-scanner
 
 # Stage 2: Install dependencies
-FROM base as dependencies
+FROM base AS dependencies
 
 # Copy requirements file
 COPY requirements.txt .
@@ -37,7 +37,7 @@ RUN pip install --upgrade pip && \
     pip install -r requirements.txt
 
 # Stage 3: Production image
-FROM dependencies as production
+FROM dependencies AS production
 
 # Copy only runtime files required by the app.
 COPY manage.py ./
@@ -60,7 +60,12 @@ python manage.py collectstatic --noinput\n\
 echo "Running database migrations..."\n\
 python manage.py migrate --noinput\n\
 echo "Starting Gunicorn..."\n\
-exec gunicorn codemio_back.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers 4 --timeout 120 --access-logfile - --error-logfile -\n\
+exec gunicorn codemio_back.wsgi:application \\\n\
+  --bind 0.0.0.0:${PORT:-8000} \\\n\
+  --workers 4 \\\n\
+  --timeout 120 \\\n\
+  --access-logfile - \\\n\
+  --error-logfile -\n\
 ' > /app/start.sh && chmod +x /app/start.sh
 
 USER app
