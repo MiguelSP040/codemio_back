@@ -2,16 +2,22 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import re
+import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from django.conf import settings
+from analysis.instrumentation import analysis_instr_log
 from analysis.services.types import NormalizedFinding, SonarAnalysisResult, SonarMetrics
+
+logger = logging.getLogger(__name__)
 
 _SEVERITY_MAP = {
     'BLOCKER': 'CRITICAL',
@@ -38,6 +44,25 @@ class _SonarConfig:
     scanner_command: str
     qualitygate_timeout_seconds: int
     api_timeout_seconds: int
+
+
+class SonarScannerError(RuntimeError):
+    def __init__(
+        self,
+        *,
+        category: str,
+        message: str,
+        stdout_preview: str = '',
+        stderr_preview: str = '',
+        command_preview: str = '',
+        return_code: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.category = category
+        self.stdout_preview = stdout_preview
+        self.stderr_preview = stderr_preview
+        self.command_preview = command_preview
+        self.return_code = return_code
 
 
 def _build_config() -> _SonarConfig:
@@ -106,11 +131,47 @@ def _sanitize_secret_text(text: str, token: str) -> str:
     return safe
 
 
+def _truncate_output(text: str, *, max_chars: int = 1400) -> str:
+    raw = (text or '').strip()
+    if len(raw) <= max_chars:
+        return raw
+    head = raw[: max_chars // 2]
+    tail = raw[-max_chars // 2 :]
+    return f'{head}\n...<truncated>...\n{tail}'
+
+
+def _command_preview(command: list[str], token: str) -> str:
+    raw = ' '.join(str(part) for part in command)
+    return _sanitize_secret_text(raw, token)
+
+
+def _classify_scanner_failure(*, stderr_text: str, stdout_text: str, exception_type: str = '') -> str:
+    blob = f'{stderr_text}\n{stdout_text}'.lower()
+    if exception_type == 'TimeoutExpired':
+        return 'timeout'
+    if 'no se encontró el comando sonar-scanner' in blob or 'not recognized' in blob or 'no such file' in blob:
+        return 'scanner_not_found'
+    if 'java' in blob and ('not found' in blob or 'not recognized' in blob or 'could not find java' in blob):
+        return 'java_not_found'
+    if '401' in blob or '403' in blob or 'not authorized' in blob or 'unauthorized' in blob:
+        return 'sonar_auth_error'
+    if 'unknownhost' in blob or 'connection' in blob or 'timed out' in blob or 'unable to execute' in blob:
+        return 'sonar_network_error'
+    if exception_type == 'RuntimeError':
+        return 'scanner_exit_nonzero'
+    return 'unknown'
+
+
 def _run_scanner(
     workspace_dir: Path,
     project_key: str,
     source_name: str,
     config: _SonarConfig,
+    *,
+    run_id: int | None = None,
+    input_type: str = '',
+    source_size_bytes: int | None = None,
+    total_files: int | None = None,
 ) -> None:
     properties_file = workspace_dir / 'sonar-project.properties'
     properties_file.write_text(
@@ -137,6 +198,45 @@ def _run_scanner(
         f'-Dproject.settings={properties_file}',
     ]
     env = {**os.environ, 'SONAR_TOKEN': config.token}
+    timeout_seconds = int(getattr(settings, 'ANALYSIS_TOOL_TIMEOUT_SECONDS', 120))
+    java_path = shutil.which('java') or ''
+    cmd_preview = _command_preview(command, config.token)
+    analysis_instr_log(
+        logger,
+        'sonar_scanner_prepare',
+        run_id=run_id or '',
+        sonar_project_key=project_key,
+        sonar_host_url=config.host_url,
+        sonar_organization=config.organization,
+        scanner_command_resolved=config.scanner_command,
+        timeout_seconds=timeout_seconds,
+        java_path=java_path or 'missing',
+        working_dir=str(workspace_dir),
+        input_type=input_type,
+        source_size_bytes=source_size_bytes if source_size_bytes is not None else '',
+        total_files=total_files if total_files is not None else '',
+    )
+    logger.info(
+        'event=sonar_scanner_prepare run_id=%s sonar_project_key=%s scanner_command=%s timeout_seconds=%s java_path=%s cwd=%s input_type=%s total_files=%s source_size_bytes=%s',
+        run_id,
+        project_key,
+        config.scanner_command,
+        timeout_seconds,
+        java_path or 'missing',
+        str(workspace_dir),
+        input_type,
+        total_files if total_files is not None else '',
+        source_size_bytes if source_size_bytes is not None else '',
+    )
+    t0 = time.perf_counter()
+    logger.info(
+        'event=sonar_scanner_subprocess_start run_id=%s sonar_project_key=%s cwd=%s timeout_seconds=%s command_preview=%s',
+        run_id,
+        project_key,
+        str(workspace_dir),
+        timeout_seconds,
+        cmd_preview,
+    )
     try:
         result = subprocess.run(
             command,
@@ -145,12 +245,48 @@ def _run_scanner(
             capture_output=True,
             text=True,
             check=False,
-            timeout=int(getattr(settings, 'ANALYSIS_TOOL_TIMEOUT_SECONDS', 120)),
+            timeout=timeout_seconds,
         )
     except FileNotFoundError as exc:
-        raise RuntimeError('No se encontró el comando sonar-scanner.') from exc
+        raise SonarScannerError(
+            category='scanner_not_found',
+            message='No se encontró el comando sonar-scanner.',
+            command_preview=cmd_preview,
+        ) from exc
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError('sonar-scanner excedió el tiempo máximo de ejecución.') from exc
+        duration_ms = int((time.perf_counter() - t0) * 1000)
+        stdout_preview = _truncate_output(_sanitize_secret_text((exc.stdout or ''), config.token))
+        stderr_preview = _truncate_output(_sanitize_secret_text((exc.stderr or ''), config.token))
+        logger.error(
+            'event=sonar_scanner_timeout run_id=%s sonar_project_key=%s timeout_seconds=%s duration_ms=%s command_preview=%s stdout_preview=%s stderr_preview=%s error=%s',
+            run_id,
+            project_key,
+            timeout_seconds,
+            duration_ms,
+            cmd_preview,
+            stdout_preview,
+            stderr_preview,
+            str(exc),
+        )
+        raise SonarScannerError(
+            category='timeout',
+            message='sonar-scanner excedió el tiempo máximo de ejecución.',
+            stdout_preview=stdout_preview,
+            stderr_preview=stderr_preview,
+            command_preview=cmd_preview,
+        ) from exc
+    duration_ms = int((time.perf_counter() - t0) * 1000)
+    stdout_preview = _truncate_output(_sanitize_secret_text((result.stdout or ''), config.token))
+    stderr_preview = _truncate_output(_sanitize_secret_text((result.stderr or ''), config.token))
+    logger.info(
+        'event=sonar_scanner_subprocess_finished run_id=%s sonar_project_key=%s return_code=%s duration_ms=%s stdout_preview=%s stderr_preview=%s',
+        run_id,
+        project_key,
+        result.returncode,
+        duration_ms,
+        stdout_preview,
+        stderr_preview,
+    )
     if result.returncode != 0:
         stderr = (result.stderr or '').strip()
         stdout = (result.stdout or '').strip()
@@ -159,7 +295,15 @@ def _run_scanner(
         # If scanner reached a quality gate result, treat it as a completed analysis outcome.
         if quality_gate_status in {'FAILED', 'ERROR'}:
             return
-        raise RuntimeError(f'SonarScanner falló: {combined_output or "sin detalle"}')
+        category = _classify_scanner_failure(stderr_text=stderr, stdout_text=stdout, exception_type='RuntimeError')
+        raise SonarScannerError(
+            category=category,
+            message=f'SonarScanner falló: {combined_output or "sin detalle"}',
+            stdout_preview=stdout_preview,
+            stderr_preview=stderr_preview,
+            command_preview=cmd_preview,
+            return_code=result.returncode,
+        )
 
 
 def _extract_quality_gate_status(scanner_output: str) -> str:
@@ -376,15 +520,40 @@ def push_sonar_scan_only(
     workspace_dir: Path,
     project_key: str,
     source_name: str,
+    run_id: int | None = None,
+    input_type: str = '',
+    source_size_bytes: int | None = None,
+    total_files: int | None = None,
 ) -> None:
 
     config = _build_config()
-    _run_scanner(
-        workspace_dir=workspace_dir,
-        project_key=project_key,
-        source_name=source_name,
-        config=config,
-    )
+    try:
+        _run_scanner(
+            workspace_dir=workspace_dir,
+            project_key=project_key,
+            source_name=source_name,
+            config=config,
+            run_id=run_id,
+            input_type=input_type,
+            source_size_bytes=source_size_bytes,
+            total_files=total_files,
+        )
+    except SonarScannerError:
+        raise
+    except Exception as exc:
+        logger.exception(
+            'event=sonar_scanner_exception run_id=%s sonar_project_key=%s exception_type=%s exception_message=%s command_preview=%s',
+            run_id,
+            project_key,
+            type(exc).__name__,
+            str(exc),
+            '',
+        )
+        raise SonarScannerError(
+            category='unknown',
+            message=f'Fallo inesperado al ejecutar sonar-scanner: {exc}',
+            command_preview='',
+        ) from exc
 
 
 def run_sonar_analysis(

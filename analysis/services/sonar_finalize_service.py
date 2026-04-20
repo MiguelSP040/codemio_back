@@ -37,6 +37,7 @@ def _log_finalize_skip(*, run_id: int, t0: float, reason: str, run: AnalysisRun 
 
 
 def _persist_final_metrics(run: AnalysisRun, findings, metrics, now, webhook_task_id: str, webhook_analysed_at: str) -> None:
+    previous_status = run.status
     run.status = AnalysisRunStatus.DONE
     run.quality_gate_status = metrics.quality_gate_status
     run.bugs = metrics.bugs
@@ -84,6 +85,13 @@ def _persist_final_metrics(run: AnalysisRun, findings, metrics, now, webhook_tas
             'sonar_task_id',
             'sonar_analysis_id',
         ]
+    )
+    logger.info(
+        'event=analysis_run_status_transition run_id=%s from_status=%s to_status=%s reason=%s',
+        run.id,
+        previous_status,
+        run.status,
+        'sonar_finalize_success',
     )
 
 
@@ -247,11 +255,20 @@ def _mark_run_failed_from_sync(run_id: int, exc: BaseException) -> None:
         run = AnalysisRun.objects.select_for_update().filter(pk=run_id).first()
         if run is None or run.status != AnalysisRunStatus.WAITING_SONAR_WEBHOOK:
             return
+        previous_status = run.status
         run.status = AnalysisRunStatus.FAILED
         run.finished_at = timezone.now()
         run.error_summary = str(exc)[:255]
         run.error_detail = trace
         run.save(update_fields=['status', 'finished_at', 'error_summary', 'error_detail'])
+        logger.info(
+            'event=analysis_run_status_transition run_id=%s from_status=%s to_status=%s reason=%s error_summary=%s',
+            run.id,
+            previous_status,
+            run.status,
+            'sonar_finalize_failed',
+            run.error_summary,
+        )
 
 
 def reconcile_stale_waiting_runs(*, max_runs: int = 20) -> int:

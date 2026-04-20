@@ -12,7 +12,7 @@ from django.conf import settings
 from analysis.instrumentation import analysis_instr_log
 from analysis.models import AnalysisFileMetric, AnalysisInputType, AnalysisRun, AnalysisRunStatus
 from analysis.services.java_syntax_metrics import extract_java_syntax_metrics
-from analysis.services.sonar_runtime_service import push_sonar_scan_only
+from analysis.services.sonar_runtime_service import SonarScannerError, push_sonar_scan_only
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +93,7 @@ def _prepare_workspace(source_name: str, source_bytes: bytes, input_type: str, r
 
 
 def _save_waiting_run_state(run: AnalysisRun, *, sonar_project_key: str, syntax_metrics, total_files: int) -> None:
+    previous_status = run.status
     run.status = AnalysisRunStatus.WAITING_SONAR_WEBHOOK
     run.sonar_project_key = sonar_project_key
     run.classes_count = syntax_metrics.classes_count
@@ -145,6 +146,13 @@ def _save_waiting_run_state(run: AnalysisRun, *, sonar_project_key: str, syntax_
             'error_detail',
         ]
     )
+    logger.info(
+        'event=analysis_run_status_transition run_id=%s from_status=%s to_status=%s reason=%s',
+        run.id,
+        previous_status,
+        run.status,
+        'scanner_completed',
+    )
 
 
 def _process_analysis_attempt(run: AnalysisRun, *, run_id: int, source_name: str, source_bytes: bytes, input_type: str) -> tuple[int, str]:
@@ -155,11 +163,38 @@ def _process_analysis_attempt(run: AnalysisRun, *, run_id: int, source_name: str
         run_id=run_id,
     )
     try:
-        push_sonar_scan_only(
-            workspace_dir=workspace_dir,
-            project_key=sonar_project_key,
-            source_name=source_name,
-        )
+        try:
+            push_sonar_scan_only(
+                workspace_dir=workspace_dir,
+                project_key=sonar_project_key,
+                source_name=source_name,
+                run_id=run_id,
+                input_type=input_type,
+                source_size_bytes=len(source_bytes),
+                total_files=total_files,
+            )
+        except SonarScannerError as exc:
+            logger.exception(
+                'event=sonar_scanner_exception run_id=%s sonar_project_key=%s exception_type=%s exception_message=%s command_preview=%s stdout_preview=%s stderr_preview=%s',
+                run_id,
+                sonar_project_key,
+                type(exc).__name__,
+                str(exc),
+                exc.command_preview,
+                exc.stdout_preview,
+                exc.stderr_preview,
+            )
+            raise
+        except Exception as exc:
+            logger.exception(
+                'event=sonar_scanner_exception run_id=%s sonar_project_key=%s exception_type=%s exception_message=%s command_preview=%s',
+                run_id,
+                sonar_project_key,
+                type(exc).__name__,
+                str(exc),
+                '',
+            )
+            raise
         syntax_metrics = extract_java_syntax_metrics(source_dir)
     finally:
         temp_ctx.cleanup()
@@ -208,6 +243,17 @@ def _execute_analysis_run(
         original_filename=(run.original_filename or '')[:120],
         duration_ms=0,
     )
+    logger.info(
+        'event=analysis_run_started run_id=%s project_id=%s input_type=%s original_filename=%s logical_filename=%s created_at=%s started_at=%s status=%s',
+        run.id,
+        run.project_id,
+        run.input_type,
+        (run.original_filename or '')[:120],
+        (run.logical_filename or '')[:120],
+        run.created_at.isoformat() if run.created_at else '',
+        run.started_at.isoformat() if run.started_at else '',
+        run.status,
+    )
 
     max_retries = max(int(getattr(settings, 'ANALYSIS_RETRY_ATTEMPTS', 2)), 0)
     retry_backoff_seconds = max(float(getattr(settings, 'ANALYSIS_RETRY_BACKOFF_SECONDS', 1.5)), 0.0)
@@ -255,6 +301,7 @@ def _execute_analysis_run(
 
 
 def _mark_run_started(run: AnalysisRun) -> None:
+    previous_status = run.status
     run.status = AnalysisRunStatus.RUNNING
     run.started_at = datetime.now(timezone.utc)
     run.error_summary = ''
@@ -263,6 +310,13 @@ def _mark_run_started(run: AnalysisRun) -> None:
     if hasattr(run, 'updated_at'):
         update_fields.append('updated_at')
     run.save(update_fields=update_fields)
+    logger.info(
+        'event=analysis_run_status_transition run_id=%s from_status=%s to_status=%s reason=%s',
+        run.id,
+        previous_status,
+        run.status,
+        'worker_started',
+    )
 
 
 def _log_waiting_for_webhook(
@@ -315,11 +369,40 @@ def _persist_failed_run_state(
     source_name: str,
     attempt: int,
 ) -> None:
+    previous_status = run.status
+    category = 'unknown'
+    scanner_stdout_preview = ''
+    scanner_stderr_preview = ''
+    command_preview = ''
+    if isinstance(exc, SonarScannerError):
+        category = exc.category
+        scanner_stdout_preview = exc.stdout_preview
+        scanner_stderr_preview = exc.stderr_preview
+        command_preview = exc.command_preview
     run.status = AnalysisRunStatus.FAILED
     run.finished_at = datetime.now(timezone.utc)
-    run.error_summary = str(exc)[:255]
+    run.error_summary = f'[{category}] {str(exc)}'[:255]
     run.error_detail = trace
     run.save(update_fields=['status', 'finished_at', 'error_summary', 'error_detail'])
+    logger.info(
+        'event=analysis_run_status_transition run_id=%s from_status=%s to_status=%s reason=%s error_summary=%s',
+        run.id,
+        previous_status,
+        run.status,
+        'pipeline_exception',
+        run.error_summary,
+    )
+    logger.error(
+        'event=analysis_run_failed_scanner run_id=%s sonar_project_key=%s category=%s error_summary=%s error_detail=%s command_preview=%s stdout_preview=%s stderr_preview=%s',
+        run.id,
+        (run.sonar_project_key or '')[:120],
+        category,
+        run.error_summary,
+        (trace or '')[:1200],
+        command_preview,
+        scanner_stdout_preview,
+        scanner_stderr_preview,
+    )
     duration_ms = int((time.perf_counter() - t_pipeline) * 1000)
     analysis_instr_log(
         logger,
