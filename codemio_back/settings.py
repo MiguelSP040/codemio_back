@@ -219,6 +219,7 @@ REST_FRAMEWORK = {
         'auth_validate': THROTTLE_RATE_10_PER_MIN,
         'auth_login': THROTTLE_RATE_10_PER_MIN,
         'auth_register': THROTTLE_RATE_10_PER_MIN,
+        'auth_forgot_password': THROTTLE_RATE_10_PER_MIN,
         'auth_refresh': THROTTLE_RATE_12_PER_MIN,
         'auth_logout': THROTTLE_RATE_20_PER_MIN,
         'auth_forgot_validate': THROTTLE_RATE_10_PER_MIN,

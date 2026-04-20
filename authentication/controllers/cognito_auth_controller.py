@@ -1,7 +1,7 @@
 from django.conf import settings
 from authentication.forgot_password_otp_probe import (
-    FORGOT_PASSWORD_OTP_PROBE_PASSWORD,
     assert_forgot_password_otp_probe_configured,
+    get_forgot_password_otp_probe_password,
 )
 from authentication.models import CognitoUser, CognitoUserStatus, Usuario
 from authentication.serializers import UsuarioMeReadSerializer
@@ -63,10 +63,11 @@ class CognitoAuthController:
         normalized = email.strip().lower()
         code_stripped = (code or '').strip()
         self._ensure_usuario_exists_for_forgot(normalized)
-        assert_forgot_password_otp_probe_configured()
+        probe_password = get_forgot_password_otp_probe_password()
+        assert_forgot_password_otp_probe_configured(probe_password)
         try:
             self._cognito.confirm_forgot_password_otp_probe(
-                normalized, code_stripped, FORGOT_PASSWORD_OTP_PROBE_PASSWORD
+                normalized, code_stripped, probe_password
             )
         except CognitoServiceError as e:
             if e.code == 'InvalidPasswordException':

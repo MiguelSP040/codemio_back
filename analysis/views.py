@@ -38,6 +38,8 @@ class AnalysisRunListCreateView(ListCreateAPIView):
         return str(value or '').strip().lower() in {'1', 'true', 'yes', 'on'}
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return AnalysisRun.objects.none()
         user = self.request.user.usuario
         queryset = AnalysisRun.objects.select_related('project', 'user').defer('error_detail')
         if user.rol != RolUsuario.ADMIN:
@@ -74,6 +76,8 @@ class AnalysisRunDetailView(RetrieveAPIView):
     serializer_class = AnalysisRunSerializer
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return AnalysisRun.objects.none()
         user = self.request.user.usuario
         queryset = AnalysisRun.objects.select_related('project', 'user').prefetch_related(
             Prefetch('findings', queryset=AnalysisFinding.objects.order_by('id')),
@@ -93,6 +97,8 @@ class AnalysisRunStatusView(RetrieveAPIView):
     throttle_scope = 'analysis_runs_read'
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return AnalysisRun.objects.none()
         user = self.request.user.usuario
         queryset = AnalysisRun.objects.only(
             'id',

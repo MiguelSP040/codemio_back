@@ -1,4 +1,6 @@
 from django.db import migrations
+import os
+import sys
 
 
 ADMIN_EMAIL = '20233tn170@utez.edu.mx'
@@ -8,6 +10,8 @@ ADMIN_AGE = 21
 
 
 def seed_admin_user(apps, schema_editor):
+    if 'test' in sys.argv or os.getenv('SKIP_ADMIN_SEED', '').strip().lower() in {'1', 'true', 'yes'}:
+        return
     usuario_model = apps.get_model('authentication', 'Usuario')
     cognito_user_model = apps.get_model('authentication', 'CognitoUser')
     user, _ = usuario_model.objects.get_or_create(
