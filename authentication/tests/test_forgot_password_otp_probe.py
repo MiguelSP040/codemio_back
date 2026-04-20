@@ -1,16 +1,18 @@
 from django.core.exceptions import ImproperlyConfigured
 from django.test import SimpleTestCase
 from authentication.forgot_password_otp_probe import (
-    FORGOT_PASSWORD_OTP_PROBE_PASSWORD,
     assert_forgot_password_otp_probe_configured,
+    get_forgot_password_otp_probe_password,
 )
 
 class ForgotPasswordOtpProbeAssertTests(SimpleTestCase):
     def test_default_probe_passes_assert(self):
         assert_forgot_password_otp_probe_configured()
 
-    def test_default_probe_matches(self):
-        self.assertEqual(FORGOT_PASSWORD_OTP_PROBE_PASSWORD, 'Abcdefgh!')
+    def test_default_probe_exists(self):
+        probe = get_forgot_password_otp_probe_password()
+        self.assertIsInstance(probe, str)
+        self.assertGreaterEqual(len(probe), 8)
 
     def test_probe_too_short_raises(self):
         with self.assertRaises(ImproperlyConfigured):

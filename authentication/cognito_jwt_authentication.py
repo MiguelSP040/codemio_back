@@ -1,4 +1,6 @@
 from __future__ import annotations
+import base64
+import json
 import logging
 from functools import lru_cache
 import jwt
@@ -61,16 +63,14 @@ class CognitoJWTAuthentication(BaseAuthentication):
     @staticmethod
     def _decode_unverified_payload(raw_token: str) -> dict:
         try:
-            return jwt.decode(
-                raw_token,
-                options={
-                    'verify_signature': False,
-                    'verify_exp': False,
-                    'verify_aud': False,
-                    'verify_iss': False,
-                },
-                algorithms=['RS256'],
-            )
+            parts = raw_token.split('.')
+            if len(parts) != 3:
+                return {}
+            payload_b64 = parts[1]
+            padded = payload_b64 + '=' * (-len(payload_b64) % 4)
+            payload_json = base64.urlsafe_b64decode(padded.encode('ascii'))
+            parsed = json.loads(payload_json.decode('utf-8'))
+            return parsed if isinstance(parsed, dict) else {}
         except Exception:
             return {}
 

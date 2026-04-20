@@ -1,4 +1,6 @@
 from unittest.mock import MagicMock, patch
+import base64
+import json
 import jwt
 from django.test import RequestFactory, TestCase, override_settings
 from rest_framework.exceptions import AuthenticationFailed
@@ -20,6 +22,16 @@ class CognitoJWTAuthenticationUnitTests(TestCase):
             rol=RolUsuario.USER,
         )
 
+    @staticmethod
+    def _unsigned_jwt(payload: dict) -> str:
+        header = {'alg': 'RS256', 'typ': 'JWT'}
+
+        def _b64(data: dict) -> str:
+            raw = json.dumps(data, separators=(',', ':')).encode('utf-8')
+            return base64.urlsafe_b64encode(raw).decode('ascii').rstrip('=')
+
+        return f"{_b64(header)}.{_b64(payload)}.sig"
+
     def test_sin_header_authentication_failed(self):
         request = self.factory.get('/users/me/')
         with self.assertRaises(AuthenticationFailed) as ctx:
@@ -39,12 +51,11 @@ class CognitoJWTAuthenticationUnitTests(TestCase):
         self.assertIn('vac', str(ctx.exception.detail).lower())
 
     def test_rechaza_id_token(self):
-        request = self.factory.get('/users/me/', HTTP_AUTHORIZATION='Bearer x.y.z')
-        with patch('authentication.cognito_jwt_authentication.jwt.decode') as mock_decode:
-            mock_decode.return_value = {'token_use': 'id', 'sub': 'sub-local-1'}
-            with self.assertRaises(AuthenticationFailed) as ctx:
-                self.auth.authenticate(request)
-            self.assertIn('id_token', str(ctx.exception.detail))
+        raw = self._unsigned_jwt({'token_use': 'id', 'sub': 'sub-local-1'})
+        request = self.factory.get('/users/me/', HTTP_AUTHORIZATION=f'Bearer {raw}')
+        with self.assertRaises(AuthenticationFailed) as ctx:
+            self.auth.authenticate(request)
+        self.assertIn('id_token', str(ctx.exception.detail))
 
     @patch('authentication.cognito_jwt_authentication._jwks_client_for_issuer')
     @patch('authentication.cognito_jwt_authentication.jwt.decode')
@@ -53,9 +64,6 @@ class CognitoJWTAuthenticationUnitTests(TestCase):
         mock_jwks.return_value.get_signing_key_from_jwt.return_value = MagicMock(key='secret')
 
         def _decode(token, *args, **kwargs):
-            opts = kwargs.get('options') or {}
-            if opts.get('verify_signature') is False:
-                return {'token_use': 'access', 'sub': 'sub-local-1', 'client_id': 'app-client-id'}
             return {'token_use': 'access', 'sub': 'sub-local-1', 'client_id': 'app-client-id'}
 
         mock_decode.side_effect = _decode
@@ -71,9 +79,6 @@ class CognitoJWTAuthenticationUnitTests(TestCase):
         mock_jwks.return_value.get_signing_key_from_jwt.return_value = MagicMock(key='secret')
 
         def _decode(token, *args, **kwargs):
-            opts = kwargs.get('options') or {}
-            if opts.get('verify_signature') is False:
-                return {'token_use': 'access', 'sub': 'sub-local-1', 'client_id': 'app-client-id'}
             raise jwt.ExpiredSignatureError('expired')
 
         mock_decode.side_effect = _decode
@@ -102,9 +107,6 @@ class UsersMeBearerIntegrationTests(TestCase):
         mock_jwks.return_value.get_signing_key_from_jwt.return_value = MagicMock(key='secret')
 
         def _decode(token, *args, **kwargs):
-            opts = kwargs.get('options') or {}
-            if opts.get('verify_signature') is False:
-                return {'token_use': 'access', 'sub': 'sub-api', 'client_id': 'app-client-id'}
             return {'token_use': 'access', 'sub': 'sub-api', 'client_id': 'app-client-id'}
 
         mock_decode.side_effect = _decode
