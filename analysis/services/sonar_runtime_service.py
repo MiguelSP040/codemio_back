@@ -162,17 +162,7 @@ def _classify_scanner_failure(*, stderr_text: str, stdout_text: str, exception_t
     return 'unknown'
 
 
-def _run_scanner(
-    workspace_dir: Path,
-    project_key: str,
-    source_name: str,
-    config: _SonarConfig,
-    *,
-    run_id: int | None = None,
-    input_type: str = '',
-    source_size_bytes: int | None = None,
-    total_files: int | None = None,
-) -> None:
+def _write_sonar_properties_file(workspace_dir: Path, *, config: _SonarConfig, project_key: str, source_name: str) -> Path:
     properties_file = workspace_dir / 'sonar-project.properties'
     properties_file.write_text(
         '\n'.join(
@@ -193,14 +183,21 @@ def _run_scanner(
         ),
         encoding='utf-8',
     )
-    command = [
-        config.scanner_command,
-        f'-Dproject.settings={properties_file}',
-    ]
-    env = {**os.environ, 'SONAR_TOKEN': config.token}
-    timeout_seconds = int(getattr(settings, 'ANALYSIS_TOOL_TIMEOUT_SECONDS', 120))
-    java_path = shutil.which('java') or ''
-    cmd_preview = _command_preview(command, config.token)
+    return properties_file
+
+
+def _log_scanner_prepare(
+    *,
+    run_id: int | None,
+    project_key: str,
+    config: _SonarConfig,
+    timeout_seconds: int,
+    java_path: str,
+    workspace_dir: Path,
+    input_type: str,
+    source_size_bytes: int | None,
+    total_files: int | None,
+) -> None:
     analysis_instr_log(
         logger,
         'sonar_scanner_prepare',
@@ -228,6 +225,19 @@ def _run_scanner(
         total_files if total_files is not None else '',
         source_size_bytes if source_size_bytes is not None else '',
     )
+
+
+def _run_scanner_subprocess(
+    *,
+    command: list[str],
+    workspace_dir: Path,
+    env: dict[str, str],
+    timeout_seconds: int,
+    run_id: int | None,
+    project_key: str,
+    cmd_preview: str,
+    token: str,
+) -> tuple[subprocess.CompletedProcess[str], str, str]:
     t0 = time.perf_counter()
     logger.info(
         'event=sonar_scanner_subprocess_start run_id=%s sonar_project_key=%s cwd=%s timeout_seconds=%s command_preview=%s',
@@ -255,8 +265,8 @@ def _run_scanner(
         ) from exc
     except subprocess.TimeoutExpired as exc:
         duration_ms = int((time.perf_counter() - t0) * 1000)
-        stdout_preview = _truncate_output(_sanitize_secret_text((exc.stdout or ''), config.token))
-        stderr_preview = _truncate_output(_sanitize_secret_text((exc.stderr or ''), config.token))
+        stdout_preview = _truncate_output(_sanitize_secret_text((exc.stdout or ''), token))
+        stderr_preview = _truncate_output(_sanitize_secret_text((exc.stderr or ''), token))
         logger.error(
             'event=sonar_scanner_timeout run_id=%s sonar_project_key=%s timeout_seconds=%s duration_ms=%s command_preview=%s stdout_preview=%s stderr_preview=%s error=%s',
             run_id,
@@ -276,8 +286,8 @@ def _run_scanner(
             command_preview=cmd_preview,
         ) from exc
     duration_ms = int((time.perf_counter() - t0) * 1000)
-    stdout_preview = _truncate_output(_sanitize_secret_text((result.stdout or ''), config.token))
-    stderr_preview = _truncate_output(_sanitize_secret_text((result.stderr or ''), config.token))
+    stdout_preview = _truncate_output(_sanitize_secret_text((result.stdout or ''), token))
+    stderr_preview = _truncate_output(_sanitize_secret_text((result.stderr or ''), token))
     logger.info(
         'event=sonar_scanner_subprocess_finished run_id=%s sonar_project_key=%s return_code=%s duration_ms=%s stdout_preview=%s stderr_preview=%s',
         run_id,
@@ -287,22 +297,85 @@ def _run_scanner(
         stdout_preview,
         stderr_preview,
     )
+    return result, stdout_preview, stderr_preview
+
+
+def _raise_nonzero_scanner_result(
+    *,
+    result: subprocess.CompletedProcess[str],
+    stdout_preview: str,
+    stderr_preview: str,
+    cmd_preview: str,
+) -> None:
+    stderr = (result.stderr or '').strip()
+    stdout = (result.stdout or '').strip()
+    combined_output = '\n'.join([part for part in [stderr, stdout] if part]).strip()
+    quality_gate_status = _extract_quality_gate_status(combined_output)
+    if quality_gate_status in {'FAILED', 'ERROR'}:
+        return
+    category = _classify_scanner_failure(stderr_text=stderr, stdout_text=stdout, exception_type='RuntimeError')
+    raise SonarScannerError(
+        category=category,
+        message=f'SonarScanner falló: {combined_output or "sin detalle"}',
+        stdout_preview=stdout_preview,
+        stderr_preview=stderr_preview,
+        command_preview=cmd_preview,
+        return_code=result.returncode,
+    )
+
+
+def _run_scanner(
+    workspace_dir: Path,
+    project_key: str,
+    source_name: str,
+    config: _SonarConfig,
+    *,
+    run_id: int | None = None,
+    input_type: str = '',
+    source_size_bytes: int | None = None,
+    total_files: int | None = None,
+) -> None:
+    properties_file = _write_sonar_properties_file(
+        workspace_dir,
+        config=config,
+        project_key=project_key,
+        source_name=source_name,
+    )
+    command = [
+        config.scanner_command,
+        f'-Dproject.settings={properties_file}',
+    ]
+    env = {**os.environ, 'SONAR_TOKEN': config.token}
+    timeout_seconds = int(getattr(settings, 'ANALYSIS_TOOL_TIMEOUT_SECONDS', 120))
+    java_path = shutil.which('java') or ''
+    cmd_preview = _command_preview(command, config.token)
+    _log_scanner_prepare(
+        run_id=run_id,
+        project_key=project_key,
+        config=config,
+        timeout_seconds=timeout_seconds,
+        java_path=java_path,
+        workspace_dir=workspace_dir,
+        input_type=input_type,
+        source_size_bytes=source_size_bytes,
+        total_files=total_files,
+    )
+    result, stdout_preview, stderr_preview = _run_scanner_subprocess(
+        command=command,
+        workspace_dir=workspace_dir,
+        env=env,
+        timeout_seconds=timeout_seconds,
+        run_id=run_id,
+        project_key=project_key,
+        cmd_preview=cmd_preview,
+        token=config.token,
+    )
     if result.returncode != 0:
-        stderr = (result.stderr or '').strip()
-        stdout = (result.stdout or '').strip()
-        combined_output = '\n'.join([part for part in [stderr, stdout] if part]).strip()
-        quality_gate_status = _extract_quality_gate_status(combined_output)
-        # If scanner reached a quality gate result, treat it as a completed analysis outcome.
-        if quality_gate_status in {'FAILED', 'ERROR'}:
-            return
-        category = _classify_scanner_failure(stderr_text=stderr, stdout_text=stdout, exception_type='RuntimeError')
-        raise SonarScannerError(
-            category=category,
-            message=f'SonarScanner falló: {combined_output or "sin detalle"}',
+        _raise_nonzero_scanner_result(
+            result=result,
             stdout_preview=stdout_preview,
             stderr_preview=stderr_preview,
-            command_preview=cmd_preview,
-            return_code=result.returncode,
+            cmd_preview=cmd_preview,
         )
 
 
