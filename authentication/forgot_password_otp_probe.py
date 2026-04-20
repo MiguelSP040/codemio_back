@@ -1,8 +1,9 @@
 from __future__ import annotations
+import os
 import re
 from django.core.exceptions import ImproperlyConfigured
 
-FORGOT_PASSWORD_OTP_PROBE_PASSWORD = 'Abcdefgh!'
+FORGOT_PASSWORD_OTP_PROBE_PASSWORD = os.getenv('FORGOT_PASSWORD_OTP_PROBE_PASSWORD')
 _MIN_COGNITO_PASSWORD_FIELD_LENGTH = 8
 
 

@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 import os
 from pathlib import Path
+from django.core.exceptions import ImproperlyConfigured
 
 import dj_database_url
 from decouple import Csv, config
@@ -31,7 +32,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = config('SECRET_KEY', default='django-insecure-c5o2z&82ev#bgxs1lsiheyk2qo0_(4en6c!mww2%(+fxzl+lf_')
+SECRET_KEY = config('SECRET_KEY', default='')
+if not SECRET_KEY:
+    raise ImproperlyConfigured('SECRET_KEY is required and must be set in environment variables.')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=False, cast=bool)
@@ -170,6 +173,12 @@ CORS_ALLOWED_ORIGINS = config(
 
 CORS_ALLOW_CREDENTIALS = True
 
+THROTTLE_RATE_5_PER_MIN = '5/min'
+THROTTLE_RATE_10_PER_MIN = '10/min'
+THROTTLE_RATE_12_PER_MIN = '12/min'
+THROTTLE_RATE_20_PER_MIN = '20/min'
+THROTTLE_RATE_240_PER_MIN = '240/min'
+
 SWAGGER_SETTINGS = {
     'USE_SESSION_AUTH': False,
     'TAGS_SORTER': 'alpha',
@@ -206,19 +215,17 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.ScopedRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'auth_send': AUTH_RATE_LIMIT,
-        'auth_validate': AUTH_RATE_LIMIT,
-        'auth_login': AUTH_RATE_LIMIT,
-        'auth_register': AUTH_RATE_LIMIT,
-        'auth_refresh': '12/min',
-        'auth_logout': AUTH_LOGOUT_RATE_LIMIT,
-        'auth_forgot_password': '5/min',
-        'auth_forgot_validate': AUTH_RATE_LIMIT,
-        'auth_confirm_forgot': '5/min',
-        'analysis_runs': ANALYSIS_RUNS_RATE_LIMIT,
-        'analysis_runs_write': ANALYSIS_RUNS_RATE_LIMIT,
-        'analysis_runs_read': '240/min',
-        'sonar_webhook': '120/min',
+        'auth_send': THROTTLE_RATE_10_PER_MIN,
+        'auth_validate': THROTTLE_RATE_10_PER_MIN,
+        'auth_login': THROTTLE_RATE_10_PER_MIN,
+        'auth_register': THROTTLE_RATE_10_PER_MIN,
+        'auth_refresh': THROTTLE_RATE_12_PER_MIN,
+        'auth_logout': THROTTLE_RATE_20_PER_MIN,
+        'auth_forgot_validate': THROTTLE_RATE_10_PER_MIN,
+        'auth_confirm_forgot': THROTTLE_RATE_5_PER_MIN,
+        'analysis_runs': THROTTLE_RATE_20_PER_MIN,
+        'analysis_runs_write': THROTTLE_RATE_20_PER_MIN,
+        'analysis_runs_read': THROTTLE_RATE_240_PER_MIN,
     },
 }
 
