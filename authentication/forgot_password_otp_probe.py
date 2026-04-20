@@ -3,7 +3,7 @@ import os
 import re
 from django.core.exceptions import ImproperlyConfigured
 
-FORGOT_PASSWORD_OTP_PROBE_PASSWORD = os.getenv('FORGOT_PASSWORD_OTP_PROBE_PASSWORD')
+FORGOT_PASSWORD_OTP_PROBE_PASSWORD = os.getenv('FORGOT_PASSWORD_OTP_PROBE_PASSWORD', 'Abcdefgh!')
 _MIN_COGNITO_PASSWORD_FIELD_LENGTH = 8
 
 

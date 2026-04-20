@@ -49,12 +49,38 @@ class CognitoJWTAuthentication(BaseAuthentication):
     def authenticate(self, request):
         raw_token = self._extract_bearer_token(request)
         issuer, client_id = self._get_cognito_config()
+        unverified_payload = self._decode_unverified_payload(raw_token)
+        self._validate_token_use_hint(unverified_payload)
         signing_key = self._get_signing_key(raw_token, issuer)
         payload = self._decode_signed_payload(raw_token, signing_key, issuer)
         self._validate_payload(payload, client_id)
         usuario = self._get_local_user(payload)
 
         return (CognitoPrincipal(usuario), raw_token)
+
+    @staticmethod
+    def _decode_unverified_payload(raw_token: str) -> dict:
+        try:
+            return jwt.decode(
+                raw_token,
+                options={
+                    'verify_signature': False,
+                    'verify_exp': False,
+                    'verify_aud': False,
+                    'verify_iss': False,
+                },
+                algorithms=['RS256'],
+            )
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _validate_token_use_hint(payload: dict) -> None:
+        token_use = payload.get('token_use')
+        if token_use == 'id':
+            raise AuthenticationFailed(_MSG_ID_TOKEN)
+        if token_use and token_use != 'access':
+            raise AuthenticationFailed(_MSG_NOT_ACCESS)
 
     def _extract_bearer_token(self, request) -> str:
         raw_auth = request.META.get('HTTP_AUTHORIZATION')
