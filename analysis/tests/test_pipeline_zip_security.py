@@ -84,9 +84,9 @@ class PipelineZipSecurityTests(SimpleTestCase):
             target_dir.mkdir(parents=True, exist_ok=True)
             symlink_info = zipfile.ZipInfo('src/Main.java')
             symlink_info.create_system = 3
-            symlink_info.external_attr = (stat.S_IFLNK | 0o777) << 16
+            symlink_info.external_attr = (stat.S_IFLNK | 0o755) << 16
             with zipfile.ZipFile(zip_path, 'w') as zf:
-                zf.writestr(symlink_info, b'/tmp/target')
+                zf.writestr(symlink_info, b'/safe/target')
 
             with self.assertRaises(RuntimeError) as exc:
                 _extract_zip(zip_path, target_dir)
