@@ -1,3 +1,4 @@
+import logging
 from django.db.models import Prefetch
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
@@ -18,6 +19,8 @@ from analysis.serializers import (
 )
 from analysis.services.sonar_webhook import process_sonar_webhook_request
 from analysis.throttles import AnalysisScopedRateThrottle
+
+logger = logging.getLogger(__name__)
 
 
 class AnalysisRunListCreateView(ListCreateAPIView):
@@ -47,9 +50,11 @@ class AnalysisRunListCreateView(ListCreateAPIView):
         owner_id = self.request.query_params.get('owner_id')
         if owner_id and user.rol == RolUsuario.ADMIN:
             queryset = queryset.filter(user_id=owner_id)
+            logger.debug(f"Admin listing analysis runs for owner_id={owner_id}")
         project_id = self.request.query_params.get('project_id')
         if project_id:
             queryset = queryset.filter(project_id=project_id)
+            logger.debug(f"Filtering analysis runs by project_id={project_id}")
         status_value = str(self.request.query_params.get('status') or '').upper().strip()
         if status_value in AnalysisRunStatus.values:
             queryset = queryset.filter(status=status_value)
@@ -63,9 +68,11 @@ class AnalysisRunListCreateView(ListCreateAPIView):
         return AnalysisRunListSerializer
 
     def create(self, request, *args, **kwargs):
+        user = request.user.usuario
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         run = serializer.save()
+        logger.info(f"Analysis run created: run_id={run.id}, project_id={run.project_id}, user_id={user.id}, filename={run.original_filename}")
         output = AnalysisRunSerializer(run, context=self.get_serializer_context())
         return Response(output.data, status=status.HTTP_202_ACCEPTED)
 
@@ -134,6 +141,7 @@ class AnalysisRunStatusBulkView(APIView):
         parts = [p.strip() for p in raw.split(',') if p.strip().isdigit()]
         ids = [int(p) for p in parts][:25]
         if not ids:
+            logger.debug("Bulk status request with no valid IDs")
             return Response([], status=status.HTTP_200_OK)
 
         user = request.user.usuario
@@ -157,6 +165,7 @@ class AnalysisRunStatusBulkView(APIView):
         if user.rol != RolUsuario.ADMIN:
             queryset = queryset.filter(user=user)
         serializer = AnalysisRunStatusSerializer(queryset.order_by('-id'), many=True)
+        logger.debug(f"Bulk status request: user_id={user.id}, requested_ids={len(ids)}, found={len(serializer.data)}")
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
@@ -172,5 +181,10 @@ class SonarCloudWebhookView(APIView):
         signature = request.META.get('HTTP_X_SONAR_WEBHOOK_HMAC_SHA256') or request.META.get(
             'HTTP_X_SONARQUBE_SIGNATURE'
         )
+        logger.info(f"SonarCloud webhook received: body_size={len(body)}, has_signature={bool(signature)}")
         http_status, message = process_sonar_webhook_request(body=body, signature_header=signature)
+        if http_status >= 400:
+            logger.warning(f"SonarCloud webhook processing failed: status={http_status}, message={message}")
+        else:
+            logger.info(f"SonarCloud webhook processed successfully: status={http_status}")
         return Response({'detail': message}, status=http_status)

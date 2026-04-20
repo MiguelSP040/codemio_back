@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import logging
 import os
 from pathlib import Path
 from django.core.exceptions import ImproperlyConfigured
@@ -63,6 +64,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'codemio_back.middleware.RequestIDMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -229,6 +231,7 @@ REST_FRAMEWORK = {
         'analysis_runs_read': THROTTLE_RATE_240_PER_MIN,
         'sonar_webhook': THROTTLE_RATE_20_PER_MIN,
     },
+    'EXCEPTION_HANDLER': 'codemio_back.logging_utils.custom_exception_handler',
 }
 
 AWS_ACCESS_KEY_ID = config('AWS_ACCESS_KEY_ID', default='')
@@ -271,3 +274,81 @@ SONAR_API_TIMEOUT_SECONDS = config('SONAR_API_TIMEOUT_SECONDS', default=30, cast
 SONAR_WEBHOOK_SECRET = config('SONAR_WEBHOOK_SECRET', default='')
 SONAR_WEBHOOK_STALE_MINUTES = config('SONAR_WEBHOOK_STALE_MINUTES', default=45, cast=int)
 DEBUG_ANALYSIS_INSTRUMENTATION = config('DEBUG_ANALYSIS_INSTRUMENTATION', default=False, cast=bool)
+
+# Logging Configuration
+LOG_LEVEL = config('LOG_LEVEL', default='INFO')
+
+
+class RequestIDFilter(logging.Filter):
+    """Filter to add request_id to log records."""
+    def filter(self, record):
+        from codemio_back.middleware.request_id import get_request_id
+        record.request_id = get_request_id() or '-'
+        return True
+
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'filters': {
+        'request_id': {
+            '()': RequestIDFilter,
+        },
+    },
+    'formatters': {
+        'verbose': {
+            'format': '[{levelname}] {asctime} [{name}] {request_id} {message}',
+            'style': '{',
+            'datefmt': '%Y-%m-%d %H:%M:%S',
+        },
+        'json': {
+            '()': 'pythonjsonlogger.jsonlogger.JsonFormatter',
+            'format': '%(asctime)s %(levelname)s %(name)s %(message)s %(pathname)s %(lineno)d %(request_id)s',
+            'datefmt': '%Y-%m-%d %H:%M:%S',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'json' if not DEBUG else 'verbose',
+            'filters': ['request_id'],
+        },
+    },
+    'root': {
+        'level': LOG_LEVEL,
+        'handlers': ['console'],
+    },
+    'loggers': {
+        'django': {
+            'level': 'INFO',
+            'handlers': ['console'],
+            'propagate': False,
+        },
+        'django.request': {
+            'level': 'WARNING',
+            'handlers': ['console'],
+            'propagate': False,
+        },
+        'django.server': {
+            'level': 'INFO',
+            'handlers': ['console'],
+            'propagate': False,
+        },
+        'authentication': {
+            'level': LOG_LEVEL,
+            'handlers': ['console'],
+            'propagate': False,
+        },
+        'projects': {
+            'level': LOG_LEVEL,
+            'handlers': ['console'],
+            'propagate': False,
+        },
+        'analysis': {
+            'level': LOG_LEVEL,
+            'handlers': ['console'],
+            'propagate': False,
+        },
+    },
+}
+

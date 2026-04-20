@@ -1,3 +1,4 @@
+import logging
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
 from rest_framework import status
@@ -30,6 +31,8 @@ from authentication.serializers import (
     UsuarioProfileSerializer,
 )
 from authentication.services.cognito_service import CognitoServiceError
+
+logger = logging.getLogger(__name__)
 
 _EMAIL_EXAMPLE = 'user@example.com'
 _MSG_USUARIO_NO_ENCONTRADO = 'Usuario no encontrado.'
@@ -331,10 +334,13 @@ class AuthForgotPasswordView(APIView):
     def post(self, request):
         ser = AuthForgotPasswordSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
+        email = ser.validated_data['email']
         ctrl = CognitoAuthController()
         try:
-            payload = ctrl.forgot_password(ser.validated_data['email'])
+            payload = ctrl.forgot_password(email)
+            logger.info(f"Password recovery initiated for email: {email}")
         except CognitoServiceError as e:
+            logger.warning(f"Password recovery failed for email: {email}, error: {e.code}")
             code, body = map_cognito_error(e)
             return Response(body, status=code)
         return Response(payload, status=status.HTTP_200_OK)
@@ -372,13 +378,16 @@ class AuthForgotPasswordValidateCodeView(APIView):
     def post(self, request):
         ser = AuthForgotPasswordValidateSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
+        email = ser.validated_data['email']
         ctrl = CognitoAuthController()
         try:
             payload = ctrl.validate_forgot_password_code(
-                ser.validated_data['email'],
+                email,
                 ser.validated_data['code'],
             )
+            logger.info(f"Password recovery code validated for email: {email}")
         except CognitoServiceError as e:
+            logger.warning(f"Password recovery code validation failed for email: {email}, error: {e.code}")
             code, body = map_cognito_error(e)
             return Response(body, status=code)
         return Response(payload, status=status.HTTP_200_OK)
@@ -412,14 +421,17 @@ class AuthConfirmForgotPasswordView(APIView):
     def post(self, request):
         ser = AuthConfirmForgotPasswordSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
+        email = ser.validated_data['email']
         ctrl = CognitoAuthController()
         try:
             payload = ctrl.confirm_forgot_password(
-                ser.validated_data['email'],
+                email,
                 ser.validated_data['code'],
                 ser.validated_data['new_password'],
             )
+            logger.info(f"Password reset completed successfully for email: {email}")
         except CognitoServiceError as e:
+            logger.warning(f"Password reset confirmation failed for email: {email}, error: {e.code}")
             code, body = map_cognito_error(e)
             return Response(body, status=code)
         return Response(payload, status=status.HTTP_200_OK)
@@ -455,10 +467,13 @@ class AuthSendView(APIView):
     def post(self, request):
         ser = AuthSendSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
+        email = ser.validated_data['email']
         ctrl = CognitoAuthController()
         try:
-            payload = ctrl.send_verification(ser.validated_data['email'])
+            payload = ctrl.send_verification(email)
+            logger.info(f"Verification code sent to email: {email}, flow: {payload.get('otp_flow', 'unknown')}")
         except CognitoServiceError as e:
+            logger.warning(f"Failed to send verification code to email: {email}, error: {e.code}")
             code, body = map_cognito_error(e)
             return Response(body, status=code)
         return Response(payload, status=status.HTTP_201_CREATED)
@@ -499,10 +514,13 @@ class AuthValidateView(APIView):
     def post(self, request):
         ser = AuthValidateSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
+        email = ser.validated_data['email']
         ctrl = CognitoAuthController()
         try:
-            payload = ctrl.confirm_sign_up(ser.validated_data['email'], ser.validated_data['otp'])
+            payload = ctrl.confirm_sign_up(email, ser.validated_data['otp'])
+            logger.info(f"Email verified successfully: {email}")
         except CognitoServiceError as e:
+            logger.warning(f"Email verification failed: {email}, error: {e.code}")
             code, body = map_cognito_error(e)
             return Response(body, status=code)
         return Response(payload, status=status.HTTP_200_OK)
@@ -542,10 +560,16 @@ class AuthRegisterView(APIView):
     def post(self, request):
         ser = AuthRegisterSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
+        email = ser.validated_data['email']
         ctrl = CognitoAuthController()
         try:
-            payload = ctrl.register(ser.validated_data['email'], ser.validated_data['password'])
+            payload = ctrl.register(email, ser.validated_data['password'])
+            if payload.get('already_registered'):
+                logger.info(f"User registration idempotent (already registered): {email}")
+            else:
+                logger.info(f"User registered successfully: {email}, sub: {payload.get('sub_cognito')}")
         except CognitoServiceError as e:
+            logger.warning(f"User registration failed: {email}, error: {e.code}")
             code, body = map_cognito_error(e)
             return Response(body, status=code)
         http_status = (
@@ -592,10 +616,14 @@ class AuthLoginView(APIView):
     def post(self, request):
         ser = AuthLoginSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
+        email = ser.validated_data['email']
         ctrl = CognitoAuthController()
         try:
-            payload = ctrl.login(ser.validated_data['email'], ser.validated_data['password'])
+            payload = ctrl.login(email, ser.validated_data['password'])
+            usuario_data = payload.get('usuario', {})
+            logger.info(f"User login successful: {email}, user_id: {usuario_data.get('id')}")
         except CognitoServiceError as e:
+            logger.warning(f"User login failed: {email}, error: {e.code}")
             code, body = map_cognito_error(e)
             return Response(body, status=code)
         return Response(payload, status=status.HTTP_200_OK)
@@ -633,13 +661,16 @@ class AuthRefreshView(APIView):
     def post(self, request):
         ser = AuthRefreshSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
+        email = ser.validated_data.get('email', 'unknown')
         ctrl = CognitoAuthController()
         try:
             payload = ctrl.refresh_tokens(
                 ser.validated_data['refresh_token'],
                 email=ser.validated_data.get('email'),
             )
+            logger.info(f"Tokens refreshed successfully for email: {email}")
         except CognitoServiceError as e:
+            logger.warning(f"Token refresh failed for email: {email}, error: {e.code}")
             code, body = map_cognito_error(e)
             return Response(body, status=code)
         return Response(payload, status=status.HTTP_200_OK)
@@ -677,10 +708,16 @@ class AuthLogoutView(APIView):
         },
     )
     def post(self, request):
+        user_email = getattr(request.user, 'email', 'unknown')
+        usuario = getattr(request.user, 'usuario', None)
+        user_id = getattr(usuario, 'id', None) if usuario else None
+        
         ctrl = CognitoAuthController()
         try:
             payload = ctrl.logout(request.auth)
+            logger.info(f"User logout successful: {user_email}, user_id: {user_id}")
         except CognitoServiceError as e:
+            logger.warning(f"User logout failed: {user_email}, error: {e.code}")
             code, body = map_cognito_error(e)
             return Response(body, status=code)
         return Response(payload, status=status.HTTP_200_OK)
@@ -703,6 +740,7 @@ class UsersMeView(APIView):
     )
     def get(self, request):
         usuario = request.user.usuario
+        logger.debug(f"User profile retrieved: user_id={usuario.id}, email={usuario.correo}")
         return Response(UsuarioMeReadSerializer(usuario).data)
 
     @swagger_auto_schema(
@@ -724,7 +762,9 @@ class UsersMeView(APIView):
         if 'encrypted_data' in request.data:
             try:
                 incoming_data = decrypt_profile_payload(request.data).payload
+                logger.debug(f"Profile payload decrypted for user_id={usuario.id}")
             except PayloadCryptoError as exc:
+                logger.warning(f"Profile payload decryption failed for user_id={usuario.id}: {exc}")
                 return Response(
                     {'code': 'EncryptedPayloadInvalid', 'detail': str(exc)},
                     status=status.HTTP_400_BAD_REQUEST,
@@ -733,6 +773,7 @@ class UsersMeView(APIView):
         ser.is_valid(raise_exception=True)
         ser.save()
         usuario.refresh_from_db()
+        logger.info(f"User profile updated: user_id={usuario.id}, email={usuario.correo}, fields={list(ser.validated_data.keys())}")
         return Response(UsuarioMeReadSerializer(usuario).data)
 
 
@@ -750,7 +791,9 @@ class ProfilePayloadPublicKeyView(APIView):
     def get(self, request):
         try:
             payload = get_public_key_payload()
+            logger.debug("Public key payload retrieved for profile encryption")
         except PayloadCryptoError as exc:
+            logger.error(f"Public key not configured: {exc}")
             return Response(
                 {'code': 'PublicKeyNotConfigured', 'detail': str(exc)},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -782,6 +825,7 @@ class AdminUsersListView(APIView):
             row = AdminUsuarioReadSerializer(u).data
             row['cognito'] = ctrl.get_cognito_state(u.correo)
             out.append(row)
+        logger.info(f"Admin user list retrieved by admin_id={me.id}, count={len(out)}")
         return Response(out, status=status.HTTP_200_OK)
 
 
@@ -800,10 +844,12 @@ class AdminUsersDetailView(APIView):
         try:
             usuario = Usuario.objects.get(id=user_id)
         except Usuario.DoesNotExist:
+            logger.warning(f"Admin attempted to get non-existent user: user_id={user_id}")
             return Response({'detail': _MSG_USUARIO_NO_ENCONTRADO}, status=status.HTTP_404_NOT_FOUND)
         ctrl = AdminUsersController()
         payload = AdminUsuarioReadSerializer(usuario).data
         payload['cognito'] = ctrl.get_cognito_state(usuario.correo)
+        logger.debug(f"Admin retrieved user details: user_id={user_id}")
         return Response(payload, status=status.HTTP_200_OK)
 
     @swagger_auto_schema(
@@ -818,11 +864,13 @@ class AdminUsersDetailView(APIView):
         try:
             usuario = Usuario.objects.get(id=user_id)
         except Usuario.DoesNotExist:
+            logger.warning(f"Admin attempted to update non-existent user: user_id={user_id}")
             return Response({'detail': _MSG_USUARIO_NO_ENCONTRADO}, status=status.HTTP_404_NOT_FOUND)
 
         allowed = {'nombre', 'edad', 'perfil_github'}
         unknown = set(request.data.keys()) - allowed
         if unknown:
+            logger.warning(f"Admin attempted to update user with invalid fields: user_id={user_id}, invalid_fields={sorted(unknown)}")
             return Response(
                 {
                     'code': 'AdminUserPatchInvalidFields',
@@ -843,6 +891,7 @@ class AdminUsersDetailView(APIView):
 
         payload = AdminUsuarioReadSerializer(usuario).data
         payload['cognito'] = ctrl.get_cognito_state(usuario.correo)
+        logger.info(f"Admin updated user: user_id={user_id}, fields={list(ser.validated_data.keys())}")
         return Response(payload, status=status.HTTP_200_OK)
 
     @swagger_auto_schema(
@@ -856,9 +905,11 @@ class AdminUsersDetailView(APIView):
         try:
             usuario = Usuario.objects.get(id=user_id)
         except Usuario.DoesNotExist:
+            logger.warning(f"Admin attempted to delete non-existent user: user_id={user_id}")
             return Response({'detail': _MSG_USUARIO_NO_ENCONTRADO}, status=status.HTTP_404_NOT_FOUND)
 
         ctrl = AdminUsersController()
         ctrl.delete_in_cognito(usuario.correo)
         usuario.delete()
+        logger.info(f"Admin deleted user: user_id={user_id}, email={usuario.correo}")
         return Response(status=status.HTTP_204_NO_CONTENT)
