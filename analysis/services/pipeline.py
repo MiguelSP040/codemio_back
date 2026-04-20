@@ -195,11 +195,7 @@ def _execute_analysis_run(
     input_type: str,
 ) -> None:
     run = AnalysisRun.objects.get(pk=run_id)
-    run.status = AnalysisRunStatus.RUNNING
-    run.started_at = datetime.now(timezone.utc)
-    run.error_summary = ''
-    run.error_detail = ''
-    run.save(update_fields=['status', 'started_at', 'error_summary', 'error_detail', 'updated_at'] if hasattr(run, 'updated_at') else ['status', 'started_at', 'error_summary', 'error_detail'])
+    _mark_run_started(run)
     t_pipeline = time.perf_counter()
     analysis_instr_log(
         logger,
@@ -225,54 +221,120 @@ def _execute_analysis_run(
                 source_bytes=source_bytes,
                 input_type=input_type,
             )
-            duration_ms = int((time.perf_counter() - t_pipeline) * 1000)
-            analysis_instr_log(
-                logger,
-                'analysis_run_waiting_sonar_webhook',
-                run_id=run.id,
-                project_id=run.project_id,
-                status=run.status,
-                sonar_project_key=(sonar_project_key or '')[:120],
+            _log_waiting_for_webhook(
+                run,
+                t_pipeline=t_pipeline,
+                sonar_project_key=sonar_project_key,
                 input_type=input_type,
-                original_filename=(source_name or '')[:120],
-                duration_ms=duration_ms,
-                total_files_analyzed=total_files,
+                source_name=source_name,
+                total_files=total_files,
             )
             return
         except Exception as exc:
             trace = traceback.format_exc(limit=10)
             if attempt <= max_retries:
-                run.error_summary = (
-                    f'Intento {attempt} de {max_retries + 1} falló. Reintentando análisis...'
-                )[:255]
-                run.error_detail = trace
-                run.save(update_fields=['error_summary', 'error_detail'])
-                sleep_seconds = retry_backoff_seconds * attempt
-                if sleep_seconds > 0:
-                    time.sleep(sleep_seconds)
+                _persist_retry_state(
+                    run,
+                    attempt=attempt,
+                    total_attempts=max_retries + 1,
+                    trace=trace,
+                    retry_backoff_seconds=retry_backoff_seconds,
+                )
                 continue
 
-            run.status = AnalysisRunStatus.FAILED
-            run.finished_at = datetime.now(timezone.utc)
-            run.error_summary = str(exc)[:255]
-            run.error_detail = trace
-            run.save(update_fields=['status', 'finished_at', 'error_summary', 'error_detail'])
-            duration_ms = int((time.perf_counter() - t_pipeline) * 1000)
-            analysis_instr_log(
-                logger,
-                'analysis_run_failed_before_webhook',
-                run_id=run.id,
-                project_id=run.project_id,
-                status=run.status,
-                sonar_project_key=(run.sonar_project_key or '')[:120],
+            _persist_failed_run_state(
+                run,
+                exc=exc,
+                trace=trace,
+                t_pipeline=t_pipeline,
                 input_type=input_type,
-                original_filename=(source_name or '')[:120],
-                duration_ms=duration_ms,
-                error_type=type(exc).__name__,
-                error_message=str(exc)[:200],
+                source_name=source_name,
                 attempt=attempt,
             )
             return
+
+
+def _mark_run_started(run: AnalysisRun) -> None:
+    run.status = AnalysisRunStatus.RUNNING
+    run.started_at = datetime.now(timezone.utc)
+    run.error_summary = ''
+    run.error_detail = ''
+    update_fields = ['status', 'started_at', 'error_summary', 'error_detail']
+    if hasattr(run, 'updated_at'):
+        update_fields.append('updated_at')
+    run.save(update_fields=update_fields)
+
+
+def _log_waiting_for_webhook(
+    run: AnalysisRun,
+    *,
+    t_pipeline: float,
+    sonar_project_key: str,
+    input_type: str,
+    source_name: str,
+    total_files: int,
+) -> None:
+    duration_ms = int((time.perf_counter() - t_pipeline) * 1000)
+    analysis_instr_log(
+        logger,
+        'analysis_run_waiting_sonar_webhook',
+        run_id=run.id,
+        project_id=run.project_id,
+        status=run.status,
+        sonar_project_key=(sonar_project_key or '')[:120],
+        input_type=input_type,
+        original_filename=(source_name or '')[:120],
+        duration_ms=duration_ms,
+        total_files_analyzed=total_files,
+    )
+
+
+def _persist_retry_state(
+    run: AnalysisRun,
+    *,
+    attempt: int,
+    total_attempts: int,
+    trace: str,
+    retry_backoff_seconds: float,
+) -> None:
+    run.error_summary = (f'Intento {attempt} de {total_attempts} falló. Reintentando análisis...')[:255]
+    run.error_detail = trace
+    run.save(update_fields=['error_summary', 'error_detail'])
+    sleep_seconds = retry_backoff_seconds * attempt
+    if sleep_seconds > 0:
+        time.sleep(sleep_seconds)
+
+
+def _persist_failed_run_state(
+    run: AnalysisRun,
+    *,
+    exc: Exception,
+    trace: str,
+    t_pipeline: float,
+    input_type: str,
+    source_name: str,
+    attempt: int,
+) -> None:
+    run.status = AnalysisRunStatus.FAILED
+    run.finished_at = datetime.now(timezone.utc)
+    run.error_summary = str(exc)[:255]
+    run.error_detail = trace
+    run.save(update_fields=['status', 'finished_at', 'error_summary', 'error_detail'])
+    duration_ms = int((time.perf_counter() - t_pipeline) * 1000)
+    analysis_instr_log(
+        logger,
+        'analysis_run_failed_before_webhook',
+        run_id=run.id,
+        project_id=run.project_id,
+        status=run.status,
+        sonar_project_key=(run.sonar_project_key or '')[:120],
+        input_type=input_type,
+        original_filename=(source_name or '')[:120],
+        duration_ms=duration_ms,
+        error_type=type(exc).__name__,
+        error_message=str(exc)[:200],
+        attempt=attempt,
+    )
 
 
 def _extract_zip(zip_path: Path, target_dir: Path) -> int:

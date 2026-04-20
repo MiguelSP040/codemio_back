@@ -198,47 +198,54 @@ def _extract_effort_minutes(effort: str | None) -> int | None:
     return minutes
 
 
-def _fetch_issues(project_key: str, config: _SonarConfig) -> list[NormalizedFinding]:
-    def _build_query(page: int, page_size: int) -> str:
-        return urlencode(
-            {
-                'componentKeys': project_key,
-                'organization': config.organization,
-                'types': 'BUG,VULNERABILITY,CODE_SMELL',
-                'statuses': 'OPEN,CONFIRMED,REOPENED,RESOLVED,CLOSED',
-                'ps': page_size,
-                'p': page,
-            }
-        )
+def _issues_query(*, project_key: str, organization: str, page: int, page_size: int) -> str:
+    return urlencode(
+        {
+            'componentKeys': project_key,
+            'organization': organization,
+            'types': 'BUG,VULNERABILITY,CODE_SMELL',
+            'statuses': 'OPEN,CONFIRMED,REOPENED,RESOLVED,CLOSED',
+            'ps': page_size,
+            'p': page,
+        }
+    )
 
-    def _to_finding(issue: dict) -> NormalizedFinding:
-        text_range = issue.get('textRange') or {}
-        return NormalizedFinding(
-            tool='sonarcloud',
-            severity=_SEVERITY_MAP.get(str(issue.get('severity', '')).upper(), 'LOW'),
-            rule=str(issue.get('rule') or ''),
-            issue_key=str(issue.get('key') or ''),
-            issue_status=str(issue.get('status') or ''),
-            file_path=_normalize_component_path(str(issue.get('component') or '')),
-            line=int(text_range.get('startLine')) if text_range.get('startLine') else None,
-            message=str(issue.get('message') or ''),
-            finding_type=str(issue.get('type') or ''),
-            effort_minutes=_extract_effort_minutes(issue.get('effort')),
-        )
+
+def _issue_to_finding(issue: dict) -> NormalizedFinding:
+    text_range = issue.get('textRange') or {}
+    return NormalizedFinding(
+        tool='sonarcloud',
+        severity=_SEVERITY_MAP.get(str(issue.get('severity', '')).upper(), 'LOW'),
+        rule=str(issue.get('rule') or ''),
+        issue_key=str(issue.get('key') or ''),
+        issue_status=str(issue.get('status') or ''),
+        file_path=_normalize_component_path(str(issue.get('component') or '')),
+        line=int(text_range.get('startLine')) if text_range.get('startLine') else None,
+        message=str(issue.get('message') or ''),
+        finding_type=str(issue.get('type') or ''),
+        effort_minutes=_extract_effort_minutes(issue.get('effort')),
+    )
+
+
+def _fetch_issues(project_key: str, config: _SonarConfig) -> list[NormalizedFinding]:
 
     findings: list[NormalizedFinding] = []
     page = 1
     page_size = 500
     while True:
-        query = _build_query(page=page, page_size=page_size)
+        query = _issues_query(
+            project_key=project_key,
+            organization=config.organization,
+            page=page,
+            page_size=page_size,
+        )
         payload = _get_json(
             f'{config.host_url}/api/issues/search?{query}',
             token=config.token,
             timeout_seconds=config.api_timeout_seconds,
         )
         issues = payload.get('issues') or []
-        for issue in issues:
-            findings.append(_to_finding(issue))
+        findings.extend(_issue_to_finding(issue) for issue in issues)
         paging = payload.get('paging') or {}
         total = int(paging.get('total') or 0)
         if page * page_size >= total:

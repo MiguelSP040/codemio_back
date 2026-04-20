@@ -65,7 +65,6 @@ class SonarRuntimeServiceTests(SimpleTestCase):
             source.mkdir(parents=True, exist_ok=True)
             (source / 'Main.java').write_text('class Main {}', encoding='utf-8')
             out = run_sonar_analysis(
-                source_dir=source,
                 workspace_dir=workspace,
                 project_key='org_key_1',
                 source_name='Main.java',
@@ -133,7 +132,6 @@ class SonarRuntimeServiceTests(SimpleTestCase):
             (source / 'Main.java').write_text('class Main {}', encoding='utf-8')
             with self.assertRaises(RuntimeError) as exc:
                 run_sonar_analysis(
-                    source_dir=source,
                     workspace_dir=workspace,
                     project_key='org_key_1',
                     source_name='Main.java',

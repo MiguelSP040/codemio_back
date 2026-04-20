@@ -64,20 +64,6 @@ def _iter_java_files(source_dir: Path) -> Iterable[Path]:
 
 
 def _collect_file_metrics(parsed_unit, rel_path: str) -> JavaFileSyntaxMetrics:
-    def _update_type_counters(type_node, counters: dict[str, int]) -> None:
-        if isinstance(type_node, javalang.tree.ClassDeclaration):
-            if type_node.extends is not None:
-                counters['inheritance_count'] += 1
-            if type_node.implements:
-                counters['inheritance_count'] += len(type_node.implements)
-        counters['methods_count'] += len(getattr(type_node, 'methods', []) or [])
-        counters['methods_count'] += len(getattr(type_node, 'constructors', []) or [])
-        for method in getattr(type_node, 'methods', []) or []:
-            counters['parameters_count'] += len(method.parameters or [])
-        for ctor in getattr(type_node, 'constructors', []) or []:
-            counters['parameters_count'] += len(ctor.parameters or [])
-        counters['interclass_calls_count'] += _count_interclass_calls(type_node)
-
     counters = {
         'classes_count': 0,
         'methods_count': 0,
@@ -87,9 +73,10 @@ def _collect_file_metrics(parsed_unit, rel_path: str) -> JavaFileSyntaxMetrics:
     }
 
     for _, node in parsed_unit:
-        if isinstance(node, (javalang.tree.ClassDeclaration, javalang.tree.InterfaceDeclaration)):
-            counters['classes_count'] += 1
-            _update_type_counters(node, counters)
+        if not _is_type_declaration(node):
+            continue
+        counters['classes_count'] += 1
+        _update_type_counters(node, counters)
 
     return JavaFileSyntaxMetrics(
         file_path=rel_path,
@@ -99,6 +86,32 @@ def _collect_file_metrics(parsed_unit, rel_path: str) -> JavaFileSyntaxMetrics:
         inheritance_count=counters['inheritance_count'],
         interclass_calls_count=counters['interclass_calls_count'],
     )
+
+
+def _is_type_declaration(node) -> bool:
+    return isinstance(node, (javalang.tree.ClassDeclaration, javalang.tree.InterfaceDeclaration))
+
+
+def _update_type_counters(type_node, counters: dict[str, int]) -> None:
+    _add_inheritance_count(type_node, counters)
+    methods = list(getattr(type_node, 'methods', []) or [])
+    ctors = list(getattr(type_node, 'constructors', []) or [])
+    counters['methods_count'] += len(methods) + len(ctors)
+    counters['parameters_count'] += _sum_parameters(methods) + _sum_parameters(ctors)
+    counters['interclass_calls_count'] += _count_interclass_calls(type_node)
+
+
+def _add_inheritance_count(type_node, counters: dict[str, int]) -> None:
+    if not isinstance(type_node, javalang.tree.ClassDeclaration):
+        return
+    if type_node.extends is not None:
+        counters['inheritance_count'] += 1
+    if type_node.implements:
+        counters['inheritance_count'] += len(type_node.implements)
+
+
+def _sum_parameters(callables) -> int:
+    return sum(len(getattr(item, 'parameters', None) or []) for item in callables)
 
 
 def _count_interclass_calls(type_node) -> int:

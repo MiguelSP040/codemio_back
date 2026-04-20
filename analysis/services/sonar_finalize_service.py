@@ -87,43 +87,26 @@ def _persist_final_metrics(run: AnalysisRun, findings, metrics, now, webhook_tas
     )
 
 
-def finalize_analysis_run_from_sonar_api(
-    run_id: int,
-    *,
-    webhook_task_id: str = '',
-    webhook_analysed_at: str = '',
-) -> bool:
-
-    t0 = time.perf_counter()
+def _get_waiting_run_or_skip(*, run_id: int, t0: float, webhook_task_id: str) -> AnalysisRun | None:
     with transaction.atomic():
         run = AnalysisRun.objects.select_for_update().filter(pk=run_id).first()
         if run is None:
             _log_finalize_skip(run_id=run_id, t0=t0, reason='no_run', webhook_task_id=webhook_task_id)
-            return False
+            return None
         if run.status != AnalysisRunStatus.WAITING_SONAR_WEBHOOK:
             _log_finalize_skip(run_id=run_id, t0=t0, reason='wrong_status', run=run, webhook_task_id=webhook_task_id)
-            return False
+            return None
         if not (run.sonar_project_key or '').strip():
             _log_finalize_skip(run_id=run_id, t0=t0, reason='no_sonar_project_key', run=run, webhook_task_id=webhook_task_id)
-            return False
+            return None
+        return run
 
-    sk = (run.sonar_project_key or '')[:120]
-    analysis_instr_log(
-        logger,
-        'sonar_finalize_started',
-        run_id=run_id,
-        sonar_project_key=sk,
-        task_id=(webhook_task_id or '')[:64],
-        duration_ms=int((time.perf_counter() - t0) * 1000),
-        findings_count=0,
-        quality_gate_status='',
-        error_type='',
-        error_message='',
-    )
 
+def _fetch_sonar_payloads(*, run: AnalysisRun, run_id: int, sk: str, t0: float, webhook_task_id: str):
     try:
         findings = fetch_sonar_issues_public(run.sonar_project_key)
         metrics = fetch_sonar_metrics_public(run.sonar_project_key)
+        return findings, metrics
     except Exception as exc:
         duration_ms = int((time.perf_counter() - t0) * 1000)
         analysis_instr_log(
@@ -140,6 +123,43 @@ def finalize_analysis_run_from_sonar_api(
         )
         logger.exception('Sonar API sync failed for run_id=%s', run_id)
         _mark_run_failed_from_sync(run_id, exc)
+        return None, None
+
+
+def finalize_analysis_run_from_sonar_api(
+    run_id: int,
+    *,
+    webhook_task_id: str = '',
+    webhook_analysed_at: str = '',
+) -> bool:
+
+    t0 = time.perf_counter()
+    run = _get_waiting_run_or_skip(run_id=run_id, t0=t0, webhook_task_id=webhook_task_id)
+    if run is None:
+        return False
+
+    sk = (run.sonar_project_key or '')[:120]
+    analysis_instr_log(
+        logger,
+        'sonar_finalize_started',
+        run_id=run_id,
+        sonar_project_key=sk,
+        task_id=(webhook_task_id or '')[:64],
+        duration_ms=int((time.perf_counter() - t0) * 1000),
+        findings_count=0,
+        quality_gate_status='',
+        error_type='',
+        error_message='',
+    )
+
+    findings, metrics = _fetch_sonar_payloads(
+        run=run,
+        run_id=run_id,
+        sk=sk,
+        t0=t0,
+        webhook_task_id=webhook_task_id,
+    )
+    if findings is None or metrics is None:
         return False
 
     now = timezone.now()
