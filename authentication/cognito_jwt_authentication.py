@@ -1,4 +1,6 @@
 from __future__ import annotations
+import base64
+import json
 import logging
 from functools import lru_cache
 import jwt
@@ -49,12 +51,36 @@ class CognitoJWTAuthentication(BaseAuthentication):
     def authenticate(self, request):
         raw_token = self._extract_bearer_token(request)
         issuer, client_id = self._get_cognito_config()
+        unverified_payload = self._decode_unverified_payload(raw_token)
+        self._validate_token_use_hint(unverified_payload)
         signing_key = self._get_signing_key(raw_token, issuer)
         payload = self._decode_signed_payload(raw_token, signing_key, issuer)
         self._validate_payload(payload, client_id)
         usuario = self._get_local_user(payload)
 
         return (CognitoPrincipal(usuario), raw_token)
+
+    @staticmethod
+    def _decode_unverified_payload(raw_token: str) -> dict:
+        try:
+            parts = raw_token.split('.')
+            if len(parts) != 3:
+                return {}
+            payload_b64 = parts[1]
+            padded = payload_b64 + '=' * (-len(payload_b64) % 4)
+            payload_json = base64.urlsafe_b64decode(padded.encode('ascii'))
+            parsed = json.loads(payload_json.decode('utf-8'))
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _validate_token_use_hint(payload: dict) -> None:
+        token_use = payload.get('token_use')
+        if token_use == 'id':
+            raise AuthenticationFailed(_MSG_ID_TOKEN)
+        if token_use and token_use != 'access':
+            raise AuthenticationFailed(_MSG_NOT_ACCESS)
 
     def _extract_bearer_token(self, request) -> str:
         raw_auth = request.META.get('HTTP_AUTHORIZATION')

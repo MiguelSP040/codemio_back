@@ -1,4 +1,6 @@
 from unittest.mock import MagicMock, patch
+import base64
+import json
 import jwt
 from django.test import TestCase, override_settings
 from rest_framework import status
@@ -23,6 +25,16 @@ class AuthLogoutViewTests(TestCase):
             edad=25,
         )
 
+    @staticmethod
+    def _unsigned_jwt(payload: dict) -> str:
+        header = {'alg': 'RS256', 'typ': 'JWT'}
+
+        def _b64(data: dict) -> str:
+            raw = json.dumps(data, separators=(',', ':')).encode('utf-8')
+            return base64.urlsafe_b64encode(raw).decode('ascii').rstrip('=')
+
+        return f"{_b64(header)}.{_b64(payload)}.sig"
+
     def test_logout_sin_authorization_401(self):
         r = self.client.post('/auth/logout/')
         self.assertEqual(r.status_code, status.HTTP_401_UNAUTHORIZED)
@@ -36,10 +48,9 @@ class AuthLogoutViewTests(TestCase):
         r = self.client.post('/auth/logout/', HTTP_AUTHORIZATION='Bearer no-es-un-jwt')
         self.assertEqual(r.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @patch('authentication.cognito_jwt_authentication.jwt.decode')
-    def test_logout_rechaza_id_token_401(self, mock_decode):
-        mock_decode.return_value = {'token_use': 'id', 'sub': 'sub-logout'}
-        r = self.client.post('/auth/logout/', HTTP_AUTHORIZATION='Bearer x.y.z')
+    def test_logout_rechaza_id_token_401(self):
+        raw = self._unsigned_jwt({'token_use': 'id', 'sub': 'sub-logout'})
+        r = self.client.post('/auth/logout/', HTTP_AUTHORIZATION=f'Bearer {raw}')
         self.assertEqual(r.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertIn('id_token', str(r.data).lower())
 
@@ -63,9 +74,6 @@ class AuthLogoutViewTests(TestCase):
         mock_jwks.return_value.get_signing_key_from_jwt.return_value = MagicMock(key='secret')
 
         def _decode(token, *args, **kwargs):
-            opts = kwargs.get('options') or {}
-            if opts.get('verify_signature') is False:
-                return {'token_use': 'access', 'sub': 'sub-logout', 'client_id': 'app-client-id'}
             return {'token_use': 'access', 'sub': 'sub-logout', 'client_id': 'app-client-id'}
 
         mock_decode.side_effect = _decode
@@ -84,9 +92,6 @@ class AuthLogoutViewTests(TestCase):
         mock_jwks.return_value.get_signing_key_from_jwt.return_value = MagicMock(key='secret')
 
         def _decode(token, *args, **kwargs):
-            opts = kwargs.get('options') or {}
-            if opts.get('verify_signature') is False:
-                return {'token_use': 'access', 'sub': 'sub-logout', 'client_id': 'app-client-id'}
             return {'token_use': 'access', 'sub': 'sub-logout', 'client_id': 'app-client-id'}
 
         mock_decode.side_effect = _decode
@@ -105,9 +110,6 @@ class AuthLogoutViewTests(TestCase):
         mock_jwks.return_value.get_signing_key_from_jwt.return_value = MagicMock(key='secret')
 
         def _decode(token, *args, **kwargs):
-            opts = kwargs.get('options') or {}
-            if opts.get('verify_signature') is False:
-                return {'token_use': 'access', 'sub': 'sub-logout', 'client_id': 'app-client-id'}
             raise jwt.ExpiredSignatureError('expired')
 
         mock_decode.side_effect = _decode
