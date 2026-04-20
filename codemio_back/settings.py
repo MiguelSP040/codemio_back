@@ -226,6 +226,7 @@ REST_FRAMEWORK = {
         'analysis_runs': THROTTLE_RATE_20_PER_MIN,
         'analysis_runs_write': THROTTLE_RATE_20_PER_MIN,
         'analysis_runs_read': THROTTLE_RATE_240_PER_MIN,
+        'sonar_webhook': THROTTLE_RATE_20_PER_MIN,
     },
 }
 
