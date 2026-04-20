@@ -1,6 +1,6 @@
 from pathlib import Path
 from rest_framework import serializers
-from analysis.models import AnalysisFinding, AnalysisRunStatus
+from analysis.models import AnalysisFileMetric, AnalysisFinding, AnalysisRunStatus
 from projects.models import Project, ProjectState
 
 
@@ -15,17 +15,21 @@ class ProjectSerializer(serializers.ModelSerializer):
     }
 
     user_id = serializers.IntegerField(read_only=True)
+    user_email = serializers.EmailField(source='user.correo', read_only=True)
     quality_score = serializers.SerializerMethodField()
     severity_summary = serializers.SerializerMethodField()
+    syntax_summary = serializers.SerializerMethodField()
 
     class Meta:
         model = Project
         fields = (
             'id',
             'user_id',
+            'user_email',
             'name',
             'quality_score',
             'severity_summary',
+            'syntax_summary',
             'state',
             'created_at',
             'updated_at',
@@ -36,6 +40,7 @@ class ProjectSerializer(serializers.ModelSerializer):
             'user_id',
             'quality_score',
             'severity_summary',
+            'syntax_summary',
             'state',
             'created_at',
             'updated_at',
@@ -87,6 +92,26 @@ class ProjectSerializer(serializers.ModelSerializer):
             'total': total,
         }
 
+    def get_syntax_summary(self, obj: Project) -> dict[str, int]:
+        cache_key = f'syntax_summary:{obj.pk}'
+        cached = self.context.get(cache_key)
+        if cached is not None:
+            return cached
+        metrics = AnalysisFileMetric.objects.filter(
+            run__project=obj,
+            run__status=AnalysisRunStatus.DONE,
+            run__is_active_for_filename=True,
+        )
+        result = {
+            'classes': sum(item.classes_count for item in metrics),
+            'methods': sum(item.methods_count for item in metrics),
+            'parameters': sum(item.parameters_count for item in metrics),
+            'inheritance': sum(item.inheritance_count for item in metrics),
+            'interclass_calls': sum(item.interclass_calls_count for item in metrics),
+        }
+        self.context[cache_key] = result
+        return result
+
     def _get_latest_counts_and_files(self, obj: Project) -> tuple[dict[str, int], int]:
         cache_key = f'severity_counts_and_files:{obj.pk}'
         cached = self.context.get(cache_key)
@@ -96,6 +121,7 @@ class ProjectSerializer(serializers.ModelSerializer):
         findings = AnalysisFinding.objects.filter(
             run__project=obj,
             run__status=AnalysisRunStatus.DONE,
+            run__is_active_for_filename=True,
         ).order_by('-run__created_at', '-run_id', 'id')
 
         latest_run_by_file: dict[str, int] = {}

@@ -2,7 +2,7 @@ from django.test import TestCase
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
-from analysis.models import AnalysisFinding, AnalysisInputType, AnalysisRun, AnalysisRunStatus
+from analysis.models import AnalysisFileMetric, AnalysisFinding, AnalysisInputType, AnalysisRun, AnalysisRunStatus
 from authentication.models import RolUsuario, Usuario
 from authentication.principal import CognitoPrincipal
 from projects.models import Project, ProjectState
@@ -20,6 +20,11 @@ class ProjectsApiTests(TestCase):
             correo='other@example.com',
             sub_cognito='sub-other',
             rol=RolUsuario.USER,
+        )
+        self.admin_user = Usuario.objects.create(
+            correo='admin@example.com',
+            sub_cognito='sub-admin',
+            rol=RolUsuario.ADMIN,
         )
 
     def test_create_project_requires_authentication(self):
@@ -103,6 +108,50 @@ class ProjectsApiTests(TestCase):
 
         forbidden_response = self.client.get(f'/projects/{foreign.id}/')
         self.assertEqual(forbidden_response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_admin_can_list_and_retrieve_foreign_projects(self):
+        own = Project.objects.create(user=self.owner, name='Owner Project')
+        foreign = Project.objects.create(user=self.other_user, name='Foreign Project')
+        self.client.force_authenticate(user=CognitoPrincipal(self.admin_user))
+
+        response = self.client.get('/projects/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = {item['id'] for item in response.data['results']}
+        self.assertIn(own.id, ids)
+        self.assertIn(foreign.id, ids)
+
+        detail = self.client.get(f'/projects/{foreign.id}/')
+        self.assertEqual(detail.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail.data['id'], foreign.id)
+
+    def test_admin_cannot_update_or_delete_foreign_project(self):
+        foreign = Project.objects.create(user=self.other_user, name='Foreign Project')
+        self.client.force_authenticate(user=CognitoPrincipal(self.admin_user))
+
+        update_response = self.client.patch(
+            f'/projects/{foreign.id}/',
+            {'name': 'Updated by admin'},
+            format='json',
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_403_FORBIDDEN)
+
+        delete_response = self.client.delete(f'/projects/{foreign.id}/')
+        self.assertEqual(delete_response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_can_update_and_delete_own_project(self):
+        own = Project.objects.create(user=self.admin_user, name='Admin Own Project')
+        self.client.force_authenticate(user=CognitoPrincipal(self.admin_user))
+
+        update_response = self.client.patch(
+            f'/projects/{own.id}/',
+            {'name': 'Admin Own Updated'},
+            format='json',
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(update_response.data['name'], 'Admin Own Updated')
+
+        delete_response = self.client.delete(f'/projects/{own.id}/')
+        self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
 
     def test_delete_project_is_logical(self):
         project = Project.objects.create(user=self.owner, name='Delete Me')
@@ -287,5 +336,50 @@ class ProjectsApiTests(TestCase):
                 'medium': 1,
                 'low': 0,
                 'total': 1,
+            },
+        )
+
+    def test_projects_include_syntax_summary_from_active_done_runs(self):
+        project = Project.objects.create(user=self.owner, name='Syntax Summary Project')
+        active_run = AnalysisRun.objects.create(
+            project=project,
+            user=self.owner,
+            status=AnalysisRunStatus.DONE,
+            input_type=AnalysisInputType.JAVA,
+            original_filename='active.java',
+            logical_filename='active.java',
+            is_active_for_filename=True,
+        )
+        AnalysisRun.objects.create(
+            project=project,
+            user=self.owner,
+            status=AnalysisRunStatus.DONE,
+            input_type=AnalysisInputType.JAVA,
+            original_filename='old.java',
+            logical_filename='old.java',
+            is_active_for_filename=False,
+        )
+        AnalysisFileMetric.objects.create(
+            run=active_run,
+            file_path='src/Active.java',
+            classes_count=2,
+            methods_count=5,
+            parameters_count=4,
+            inheritance_count=1,
+            interclass_calls_count=3,
+        )
+
+        self.client.force_authenticate(user=CognitoPrincipal(self.owner))
+        response = self.client.get('/projects/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        item = response.data['results'][0]
+        self.assertEqual(
+            item['syntax_summary'],
+            {
+                'classes': 2,
+                'methods': 5,
+                'parameters': 4,
+                'inheritance': 1,
+                'interclass_calls': 3,
             },
         )

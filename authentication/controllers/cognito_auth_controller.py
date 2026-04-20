@@ -15,6 +15,28 @@ from authentication.services.usuario_cognito_sync import crear_usuario_minimo_po
 
 _OTP_FLOW_PUBLIC = {'sign_up': 'initial', 'resend': 'resent'}
 
+_COGNITO_ERROR_STATUS_MAP = {
+    'UsernameExistsException': 409,
+    'EmailAlreadyVerifiedException': 409,
+    'UserNotFoundException': 404,
+    'TooManyRequestsException': 429,
+    'LimitExceededException': 429,
+    'NotAuthorizedException': 401,
+    'ForgotPasswordOtpProbeUnexpected': 500,
+    'ExpiredCodeException': 400,
+    'CodeMismatchException': 400,
+    'InvalidPasswordException': 400,
+    'InvalidUserStateException': 400,
+    'EmailNotConfirmedException': 403,
+    'EmailNotVerifiedException': 403,
+    'SubMismatchException': 409,
+    'LocalProfileEmailMismatchException': 409,
+    'UserNotConfirmedForLoginException': 403,
+    'LocalProfileNotFoundException': 403,
+    'AuthChallengeRequiredException': 400,
+    'RefreshSecretHashParamsException': 400,
+}
+
 class CognitoAuthController:
     def __init__(self, cognito: CognitoService | None = None):
         from authentication.services import get_cognito_service
@@ -115,7 +137,6 @@ class CognitoAuthController:
             sub = raw.get('UserSub')
             detail = 'Verificación iniciada. Revisa el correo para el código OTP.'
         else:
-            raw = outcome['resend_response']
             sub = outcome.get('cognito_sub')
             detail = (
                 'Ya existía una verificación pendiente con este correo. '
@@ -367,38 +388,7 @@ class CognitoAuthController:
 
 
 def map_cognito_error(exc: CognitoServiceError) -> tuple[int, dict]:
-    status = 400
-    if exc.code in ('UsernameExistsException',):
-        status = 409
-    elif exc.code in ('EmailAlreadyVerifiedException',):
-        status = 409
-    elif exc.code in ('UserNotFoundException',):
-        status = 404
-    elif exc.code in ('TooManyRequestsException', 'LimitExceededException'):
-        status = 429
-    elif exc.code in ('NotAuthorizedException',):
-        status = 401
-    elif exc.code in ('ForgotPasswordOtpProbeUnexpected',):
-        status = 500
-    elif exc.code in ('ExpiredCodeException', 'CodeMismatchException'):
-        status = 400
-    elif exc.code in ('InvalidPasswordException', 'InvalidUserStateException'):
-        status = 400
-    elif exc.code in ('EmailNotConfirmedException',):
-        status = 403
-    elif exc.code in ('EmailNotVerifiedException',):
-        status = 403
-    elif exc.code in ('SubMismatchException', 'LocalProfileEmailMismatchException'):
-        status = 409
-    elif exc.code in (
-        'UserNotConfirmedForLoginException',
-        'LocalProfileNotFoundException',
-    ):
-        status = 403
-    elif exc.code in ('AuthChallengeRequiredException',):
-        status = 400
-    elif exc.code in ('RefreshSecretHashParamsException',):
-        status = 400
+    status = _COGNITO_ERROR_STATUS_MAP.get(exc.code, 400)
     body: dict = {
         'code': exc.code,
         'detail': exc.message,

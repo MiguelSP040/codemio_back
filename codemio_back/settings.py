@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 import os
 from pathlib import Path
+from django.core.exceptions import ImproperlyConfigured
 
 import dj_database_url
 from decouple import Csv, config
@@ -31,7 +32,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = config('SECRET_KEY', default='django-insecure-c5o2z&82ev#bgxs1lsiheyk2qo0_(4en6c!mww2%(+fxzl+lf_')
+SECRET_KEY = config('SECRET_KEY', default='')
+if not SECRET_KEY:
+    raise ImproperlyConfigured('SECRET_KEY is required and must be set in environment variables.')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=False, cast=bool)
@@ -164,11 +167,17 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # CORS Configuration
 CORS_ALLOWED_ORIGINS = config(
     'CORS_ALLOWED_ORIGINS',
-    default='http://localhost:5173,http://localhost:3000',
+    default='',
     cast=Csv()
 )
 
 CORS_ALLOW_CREDENTIALS = True
+
+THROTTLE_RATE_5_PER_MIN = '5/min'
+THROTTLE_RATE_10_PER_MIN = '10/min'
+THROTTLE_RATE_12_PER_MIN = '12/min'
+THROTTLE_RATE_20_PER_MIN = '20/min'
+THROTTLE_RATE_240_PER_MIN = '240/min'
 
 SWAGGER_SETTINGS = {
     'USE_SESSION_AUTH': False,
@@ -189,6 +198,10 @@ SWAGGER_SETTINGS = {
 }
 
 # Django REST Framework
+AUTH_RATE_LIMIT = '10/min'
+AUTH_LOGOUT_RATE_LIMIT = '20/min'
+ANALYSIS_RUNS_RATE_LIMIT = '20/min'
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.SessionAuthentication',
@@ -202,22 +215,20 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.ScopedRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        # Sensibles (anti brute-force). Ajustar según entorno.
-        'auth_send': '10/min',
-        'auth_validate': '10/min',
-        'auth_login': '10/min',
-        'auth_register': '10/min',
-        'auth_forgot_password': '5/min',
-        'auth_forgot_validate': '10/min',
-        'auth_confirm_forgot': '5/min',
+        'auth_send': THROTTLE_RATE_10_PER_MIN,
+        'auth_validate': THROTTLE_RATE_10_PER_MIN,
+        'auth_login': THROTTLE_RATE_10_PER_MIN,
+        'auth_register': THROTTLE_RATE_10_PER_MIN,
+        'auth_refresh': THROTTLE_RATE_12_PER_MIN,
+        'auth_logout': THROTTLE_RATE_20_PER_MIN,
+        'auth_forgot_validate': THROTTLE_RATE_10_PER_MIN,
+        'auth_confirm_forgot': THROTTLE_RATE_5_PER_MIN,
+        'analysis_runs': THROTTLE_RATE_20_PER_MIN,
+        'analysis_runs_write': THROTTLE_RATE_20_PER_MIN,
+        'analysis_runs_read': THROTTLE_RATE_240_PER_MIN,
+        'sonar_webhook': THROTTLE_RATE_20_PER_MIN,
     },
 }
-
-# Validaciones de perfil (usuarios) — fijas (no por entorno)
-PROFILE_NAME_MIN_LEN = 2
-PROFILE_NAME_MAX_LEN = 100
-PROFILE_AGE_MIN = 1
-PROFILE_AGE_MAX = 120
 
 AWS_ACCESS_KEY_ID = config('AWS_ACCESS_KEY_ID', default='')
 AWS_SECRET_ACCESS_KEY = config('AWS_SECRET_ACCESS_KEY', default='')
@@ -234,11 +245,28 @@ PROFILE_PAYLOAD_RSA_PRIVATE_KEY_PEM = config('PROFILE_PAYLOAD_RSA_PRIVATE_KEY_PE
 ANALYSIS_MAX_UPLOAD_BYTES = config('ANALYSIS_MAX_UPLOAD_BYTES', default=10485760, cast=int)
 ANALYSIS_MAX_EXTRACTED_BYTES = config('ANALYSIS_MAX_EXTRACTED_BYTES', default=31457280, cast=int)
 ANALYSIS_MAX_EXTRACTED_FILES = config('ANALYSIS_MAX_EXTRACTED_FILES', default=500, cast=int)
+ANALYSIS_MAX_ZIP_ENTRIES = config('ANALYSIS_MAX_ZIP_ENTRIES', default=2000, cast=int)
+ANALYSIS_MAX_ZIP_PATH_DEPTH = config('ANALYSIS_MAX_ZIP_PATH_DEPTH', default=12, cast=int)
+ANALYSIS_MAX_ZIP_COMPRESSION_RATIO = config('ANALYSIS_MAX_ZIP_COMPRESSION_RATIO', default=100.0, cast=float)
+ANALYSIS_MAX_ZIP_ENTRY_BYTES = config('ANALYSIS_MAX_ZIP_ENTRY_BYTES', default=31457280, cast=int)
+ANALYSIS_MAX_INFLIGHT_TASKS = config('ANALYSIS_MAX_INFLIGHT_TASKS', default=50, cast=int)
+ANALYSIS_RETRY_ATTEMPTS = config('ANALYSIS_RETRY_ATTEMPTS', default=2, cast=int)
+ANALYSIS_RETRY_BACKOFF_SECONDS = config('ANALYSIS_RETRY_BACKOFF_SECONDS', default=1.5, cast=float)
 ANALYSIS_TOOL_TIMEOUT_SECONDS = config('ANALYSIS_TOOL_TIMEOUT_SECONDS', default=120, cast=int)
-ANALYSIS_PMD_COMMAND = config('ANALYSIS_PMD_COMMAND', default='pmd')
-ANALYSIS_PMD_RULESET = config(
-    'ANALYSIS_PMD_RULESET',
-    default='category/java/bestpractices.xml,category/java/errorprone.xml',
-)
-ANALYSIS_SPOTBUGS_COMMAND = config('ANALYSIS_SPOTBUGS_COMMAND', default='spotbugs')
-ANALYSIS_JAVAC_COMMAND = config('ANALYSIS_JAVAC_COMMAND', default='javac')
+ANALYSIS_WORKERS = config('ANALYSIS_WORKERS', default=2, cast=int)
+ANALYSIS_GATE_MAX_SECURITY_RATING = config('ANALYSIS_GATE_MAX_SECURITY_RATING', default=1, cast=int)
+ANALYSIS_GATE_MAX_RELIABILITY_RATING = config('ANALYSIS_GATE_MAX_RELIABILITY_RATING', default=1, cast=int)
+ANALYSIS_GATE_MAX_MAINTAINABILITY_RATING = config('ANALYSIS_GATE_MAX_MAINTAINABILITY_RATING', default=2, cast=int)
+ANALYSIS_GATE_WARN_CODE_SMELLS_THRESHOLD = config('ANALYSIS_GATE_WARN_CODE_SMELLS_THRESHOLD', default=20, cast=int)
+ANALYSIS_GATE_WARN_MIN_COVERAGE = config('ANALYSIS_GATE_WARN_MIN_COVERAGE', default=60.0, cast=float)
+
+SONAR_HOST_URL = config('SONAR_HOST_URL', default='https://sonarcloud.io')
+SONAR_TOKEN = config('SONAR_TOKEN', default='')
+SONAR_ORGANIZATION = config('SONAR_ORGANIZATION', default='')
+SONAR_SCANNER_COMMAND = config('SONAR_SCANNER_COMMAND', default='sonar-scanner')
+SONAR_RUNTIME_PROJECT_PREFIX = config('SONAR_RUNTIME_PROJECT_PREFIX', default='codemio-runtime')
+SONAR_QUALITYGATE_TIMEOUT_SECONDS = config('SONAR_QUALITYGATE_TIMEOUT_SECONDS', default=180, cast=int)
+SONAR_API_TIMEOUT_SECONDS = config('SONAR_API_TIMEOUT_SECONDS', default=30, cast=int)
+SONAR_WEBHOOK_SECRET = config('SONAR_WEBHOOK_SECRET', default='')
+SONAR_WEBHOOK_STALE_MINUTES = config('SONAR_WEBHOOK_STALE_MINUTES', default=45, cast=int)
+DEBUG_ANALYSIS_INSTRUMENTATION = config('DEBUG_ANALYSIS_INSTRUMENTATION', default=False, cast=bool)
