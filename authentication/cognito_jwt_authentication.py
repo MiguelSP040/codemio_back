@@ -69,7 +69,7 @@ class CognitoJWTAuthentication(BaseAuthentication):
             raise AuthenticationFailed('Autenticación Cognito no configurada en el servidor.')
 
         try:
-            unverified = jwt.decode(raw_token, options={'verify_signature': False})
+            jwt.decode(token, key, algorithms="HS256")
         except jwt.DecodeError as e:
             raise AuthenticationFailed('Token JWT mal formado.') from e
 

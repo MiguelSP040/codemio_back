@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 import os
 from pathlib import Path
+from django.core.exceptions import ImproperlyConfigured
 
 import dj_database_url
 from decouple import Csv, config
@@ -31,7 +32,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = config('SECRET_KEY', default='django-insecure-c5o2z&82ev#bgxs1lsiheyk2qo0_(4en6c!mww2%(+fxzl+lf_')
+SECRET_KEY = config('SECRET_KEY', default='')
+if not SECRET_KEY:
+    raise ImproperlyConfigured('SECRET_KEY is required and must be set in environment variables.')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=False, cast=bool)
@@ -208,7 +211,6 @@ REST_FRAMEWORK = {
         'auth_register': '10/min',
         'auth_refresh': '12/min',
         'auth_logout': '20/min',
-        'auth_forgot_password': '5/min',
         'auth_forgot_validate': '10/min',
         'auth_confirm_forgot': '5/min',
         'analysis_runs': '20/min',
