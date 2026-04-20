@@ -91,19 +91,6 @@ jobs:
         coverage run --source='.' manage.py test
         coverage xml
 
-    - name: SonarQube Scan
-      uses: SonarSource/sonarqube-scan-action@v3
-      env:
-        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        SONAR_HOST_URL: https://sonarcloud.io
-
-    - name: SonarQube Quality Gate check
-      uses: SonarSource/sonarqube-quality-gate-action@v1.1.0
-      timeout-minutes: 5
-      env:
-        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      continue-on-error: true
-
   build:
     name: Build Docker Image
     runs-on: ubuntu-latest

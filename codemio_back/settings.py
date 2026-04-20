@@ -167,7 +167,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # CORS Configuration
 CORS_ALLOWED_ORIGINS = config(
     'CORS_ALLOWED_ORIGINS',
-    default='http://localhost:5173,http://localhost:3000',
+    default='',
     cast=Csv()
 )
 
@@ -198,6 +198,10 @@ SWAGGER_SETTINGS = {
 }
 
 # Django REST Framework
+AUTH_RATE_LIMIT = '10/min'
+AUTH_LOGOUT_RATE_LIMIT = '20/min'
+ANALYSIS_RUNS_RATE_LIMIT = '20/min'
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.SessionAuthentication',
@@ -262,3 +266,6 @@ SONAR_SCANNER_COMMAND = config('SONAR_SCANNER_COMMAND', default='sonar-scanner')
 SONAR_RUNTIME_PROJECT_PREFIX = config('SONAR_RUNTIME_PROJECT_PREFIX', default='codemio-runtime')
 SONAR_QUALITYGATE_TIMEOUT_SECONDS = config('SONAR_QUALITYGATE_TIMEOUT_SECONDS', default=180, cast=int)
 SONAR_API_TIMEOUT_SECONDS = config('SONAR_API_TIMEOUT_SECONDS', default=30, cast=int)
+SONAR_WEBHOOK_SECRET = config('SONAR_WEBHOOK_SECRET', default='')
+SONAR_WEBHOOK_STALE_MINUTES = config('SONAR_WEBHOOK_STALE_MINUTES', default=45, cast=int)
+DEBUG_ANALYSIS_INSTRUMENTATION = config('DEBUG_ANALYSIS_INSTRUMENTATION', default=False, cast=bool)

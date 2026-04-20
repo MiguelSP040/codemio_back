@@ -1,12 +1,22 @@
+from django.db.models import Prefetch
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from rest_framework.generics import ListCreateAPIView, RetrieveAPIView
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from authentication.cognito_jwt_authentication import CognitoJWTAuthentication
 from authentication.models import RolUsuario
-from analysis.models import AnalysisRun, AnalysisRunStatus
-from analysis.serializers import AnalysisRunCreateSerializer, AnalysisRunSerializer
+from analysis.models import AnalysisFileMetric, AnalysisFinding, AnalysisRun, AnalysisRunStatus
+from analysis.serializers import (
+    AnalysisRunCreateSerializer,
+    AnalysisRunListSerializer,
+    AnalysisRunSerializer,
+    AnalysisRunStatusSerializer,
+)
+from analysis.services.sonar_webhook import process_sonar_webhook_request
 from analysis.throttles import AnalysisScopedRateThrottle
 
 
@@ -17,11 +27,6 @@ class AnalysisRunListCreateView(ListCreateAPIView):
     throttle_classes = [AnalysisScopedRateThrottle]
 
     def get_throttles(self):
-        # El throttle existe para frenar abuso de subidas (POST). Aplicarlo
-        # también a GET rompe el polling del frontend: el modal de progreso y
-        # el dashboard listan runs cada pocos segundos y se gastan la cuota
-        # en menos de un minuto. Separamos scope de lectura y escritura para
-        # poder afinar cada tasa sin bloquear a usuarios legítimos.
         if self.request.method == 'POST':
             self.throttle_scope = 'analysis_runs_write'
         else:
@@ -34,7 +39,7 @@ class AnalysisRunListCreateView(ListCreateAPIView):
 
     def get_queryset(self):
         user = self.request.user.usuario
-        queryset = AnalysisRun.objects.select_related('project', 'user')
+        queryset = AnalysisRun.objects.select_related('project', 'user').defer('error_detail')
         if user.rol != RolUsuario.ADMIN:
             queryset = queryset.filter(user=user)
         owner_id = self.request.query_params.get('owner_id')
@@ -53,7 +58,7 @@ class AnalysisRunListCreateView(ListCreateAPIView):
     def get_serializer_class(self):
         if self.request.method == 'POST':
             return AnalysisRunCreateSerializer
-        return AnalysisRunSerializer
+        return AnalysisRunListSerializer
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -70,7 +75,96 @@ class AnalysisRunDetailView(RetrieveAPIView):
 
     def get_queryset(self):
         user = self.request.user.usuario
-        queryset = AnalysisRun.objects.select_related('project', 'user')
+        queryset = AnalysisRun.objects.select_related('project', 'user').prefetch_related(
+            Prefetch('findings', queryset=AnalysisFinding.objects.order_by('id')),
+            Prefetch('file_metrics', queryset=AnalysisFileMetric.objects.order_by('file_path', 'id')),
+        )
         if user.rol == RolUsuario.ADMIN:
             return queryset
         return queryset.filter(user=user)
+
+
+class AnalysisRunStatusView(RetrieveAPIView):
+
+    authentication_classes = [CognitoJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    serializer_class = AnalysisRunStatusSerializer
+    throttle_classes = [AnalysisScopedRateThrottle]
+    throttle_scope = 'analysis_runs_read'
+
+    def get_queryset(self):
+        user = self.request.user.usuario
+        queryset = AnalysisRun.objects.only(
+            'id',
+            'project_id',
+            'user_id',
+            'status',
+            'input_type',
+            'original_filename',
+            'logical_filename',
+            'is_active_for_filename',
+            'quality_gate_status',
+            'findings_count',
+            'error_summary',
+            'error_detail',
+            'created_at',
+            'started_at',
+            'finished_at',
+        )
+        if user.rol == RolUsuario.ADMIN:
+            return queryset
+        return queryset.filter(user=user)
+
+
+class AnalysisRunStatusBulkView(APIView):
+
+    authentication_classes = [CognitoJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [AnalysisScopedRateThrottle]
+    throttle_scope = 'analysis_runs_read'
+
+    def get(self, request, *args, **kwargs):
+        raw = request.query_params.get('ids', '')
+        parts = [p.strip() for p in raw.split(',') if p.strip().isdigit()]
+        ids = [int(p) for p in parts][:25]
+        if not ids:
+            return Response([], status=status.HTTP_200_OK)
+
+        user = request.user.usuario
+        queryset = AnalysisRun.objects.only(
+            'id',
+            'project_id',
+            'user_id',
+            'status',
+            'input_type',
+            'original_filename',
+            'logical_filename',
+            'is_active_for_filename',
+            'quality_gate_status',
+            'findings_count',
+            'error_summary',
+            'error_detail',
+            'created_at',
+            'started_at',
+            'finished_at',
+        ).filter(pk__in=ids)
+        if user.rol != RolUsuario.ADMIN:
+            queryset = queryset.filter(user=user)
+        serializer = AnalysisRunStatusSerializer(queryset.order_by('-id'), many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class SonarCloudWebhookView(APIView):
+    authentication_classes = []
+    permission_classes = []
+    throttle_classes = [AnalysisScopedRateThrottle]
+    throttle_scope = 'sonar_webhook'
+
+    def post(self, request, *args, **kwargs):
+        body = request.body or b''
+        signature = request.META.get('HTTP_X_SONAR_WEBHOOK_HMAC_SHA256') or request.META.get(
+            'HTTP_X_SONARQUBE_SIGNATURE'
+        )
+        http_status, message = process_sonar_webhook_request(body=body, signature_header=signature)
+        return Response({'detail': message}, status=http_status)

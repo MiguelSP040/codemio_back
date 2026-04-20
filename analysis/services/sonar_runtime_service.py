@@ -107,7 +107,6 @@ def _sanitize_secret_text(text: str, token: str) -> str:
 
 
 def _run_scanner(
-    source_dir: Path,
     workspace_dir: Path,
     project_key: str,
     source_name: str,
@@ -122,14 +121,12 @@ def _run_scanner(
                 f'sonar.projectKey={project_key}',
                 f'sonar.projectName={source_name}',
                 'sonar.projectVersion=runtime',
-                # Use a relative path to avoid Windows backslash escaping issues in .properties.
                 'sonar.sources=source',
                 'sonar.inclusions=**/*.java',
                 'sonar.exclusions=**/*.zip',
                 'sonar.sourceEncoding=UTF-8',
                 'sonar.language=java',
-                'sonar.qualitygate.wait=true',
-                f'sonar.qualitygate.timeout={config.qualitygate_timeout_seconds}',
+                'sonar.qualitygate.wait=false',
                 'sonar.scanner.skipJreProvisioning=true',
             ]
         ),
@@ -201,20 +198,46 @@ def _extract_effort_minutes(effort: str | None) -> int | None:
     return minutes
 
 
+def _issues_query(*, project_key: str, organization: str, page: int, page_size: int) -> str:
+    return urlencode(
+        {
+            'componentKeys': project_key,
+            'organization': organization,
+            'types': 'BUG,VULNERABILITY,CODE_SMELL',
+            'statuses': 'OPEN,CONFIRMED,REOPENED,RESOLVED,CLOSED',
+            'ps': page_size,
+            'p': page,
+        }
+    )
+
+
+def _issue_to_finding(issue: dict) -> NormalizedFinding:
+    text_range = issue.get('textRange') or {}
+    return NormalizedFinding(
+        tool='sonarcloud',
+        severity=_SEVERITY_MAP.get(str(issue.get('severity', '')).upper(), 'LOW'),
+        rule=str(issue.get('rule') or ''),
+        issue_key=str(issue.get('key') or ''),
+        issue_status=str(issue.get('status') or ''),
+        file_path=_normalize_component_path(str(issue.get('component') or '')),
+        line=int(text_range.get('startLine')) if text_range.get('startLine') else None,
+        message=str(issue.get('message') or ''),
+        finding_type=str(issue.get('type') or ''),
+        effort_minutes=_extract_effort_minutes(issue.get('effort')),
+    )
+
+
 def _fetch_issues(project_key: str, config: _SonarConfig) -> list[NormalizedFinding]:
+
     findings: list[NormalizedFinding] = []
     page = 1
     page_size = 500
     while True:
-        query = urlencode(
-            {
-                'componentKeys': project_key,
-                'organization': config.organization,
-                'types': 'BUG,VULNERABILITY,CODE_SMELL',
-                'statuses': 'OPEN,CONFIRMED,REOPENED,RESOLVED,CLOSED',
-                'ps': page_size,
-                'p': page,
-            }
+        query = _issues_query(
+            project_key=project_key,
+            organization=config.organization,
+            page=page,
+            page_size=page_size,
         )
         payload = _get_json(
             f'{config.host_url}/api/issues/search?{query}',
@@ -222,22 +245,7 @@ def _fetch_issues(project_key: str, config: _SonarConfig) -> list[NormalizedFind
             timeout_seconds=config.api_timeout_seconds,
         )
         issues = payload.get('issues') or []
-        for issue in issues:
-            text_range = issue.get('textRange') or {}
-            findings.append(
-                NormalizedFinding(
-                    tool='sonarcloud',
-                    severity=_SEVERITY_MAP.get(str(issue.get('severity', '')).upper(), 'LOW'),
-                    rule=str(issue.get('rule') or ''),
-                    issue_key=str(issue.get('key') or ''),
-                    issue_status=str(issue.get('status') or ''),
-                    file_path=_normalize_component_path(str(issue.get('component') or '')),
-                    line=int(text_range.get('startLine')) if text_range.get('startLine') else None,
-                    message=str(issue.get('message') or ''),
-                    finding_type=str(issue.get('type') or ''),
-                    effort_minutes=_extract_effort_minutes(issue.get('effort')),
-                )
-            )
+        findings.extend(_issue_to_finding(issue) for issue in issues)
         paging = payload.get('paging') or {}
         total = int(paging.get('total') or 0)
         if page * page_size >= total:
@@ -363,21 +371,45 @@ def _evaluate_mvp_quality_gate(
     return 'OK'
 
 
-def run_sonar_analysis(
+def push_sonar_scan_only(
     *,
-    source_dir: Path,
     workspace_dir: Path,
     project_key: str,
     source_name: str,
-) -> SonarAnalysisResult:
+) -> None:
+
     config = _build_config()
     _run_scanner(
-        source_dir=source_dir,
         workspace_dir=workspace_dir,
         project_key=project_key,
         source_name=source_name,
         config=config,
     )
+
+
+def run_sonar_analysis(
+    *,
+    workspace_dir: Path,
+    project_key: str,
+    source_name: str,
+) -> SonarAnalysisResult:
+
+    config = _build_config()
+    push_sonar_scan_only(
+        workspace_dir=workspace_dir,
+        project_key=project_key,
+        source_name=source_name,
+    )
     findings = _fetch_issues(project_key=project_key, config=config)
     metrics = _fetch_metrics(project_key=project_key, config=config)
     return SonarAnalysisResult(findings=findings, metrics=metrics)
+
+
+def fetch_sonar_issues_public(project_key: str) -> list[NormalizedFinding]:
+    config = _build_config()
+    return _fetch_issues(project_key=project_key, config=config)
+
+
+def fetch_sonar_metrics_public(project_key: str) -> SonarMetrics:
+    config = _build_config()
+    return _fetch_metrics(project_key=project_key, config=config)
