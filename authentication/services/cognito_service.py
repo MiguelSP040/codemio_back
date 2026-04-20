@@ -11,6 +11,15 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
+_SENSITIVE_KEYS = {
+    'AccessToken',
+    'IdToken',
+    'RefreshToken',
+    'SecretHash',
+    'password',
+    'Password',
+}
+
 def serialize_cognito_payload(obj: Any) -> Any:
     if obj is None:
         return None
@@ -24,6 +33,22 @@ def serialize_cognito_payload(obj: Any) -> Any:
         return obj.decode('utf-8', errors='replace')
     if hasattr(obj, 'isoformat'):
         return obj.isoformat()
+    return obj
+
+
+def redact_sensitive_payload(obj: Any) -> Any:
+    if obj is None:
+        return None
+    if isinstance(obj, dict):
+        out: dict[str, Any] = {}
+        for k, v in obj.items():
+            if str(k) in _SENSITIVE_KEYS:
+                out[k] = '***REDACTED***'
+            else:
+                out[k] = redact_sensitive_payload(v)
+        return out
+    if isinstance(obj, list):
+        return [redact_sensitive_payload(v) for v in obj]
     return obj
 
 class CognitoServiceError(Exception):
@@ -85,7 +110,7 @@ class CognitoService:
             err.get('Code'),
             err.get('Message'),
             rid,
-            serialize_cognito_payload(e.response),
+            redact_sensitive_payload(serialize_cognito_payload(e.response)),
         )
 
     def _log_success(self, operation: str, username: str, response: dict[str, Any]) -> None:
@@ -95,7 +120,7 @@ class CognitoService:
             operation,
             username,
             rid,
-            serialize_cognito_payload(response),
+            redact_sensitive_payload(serialize_cognito_payload(response)),
         )
 
     def _admin_get_user_optional(self, email: str) -> dict[str, Any] | None:

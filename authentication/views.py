@@ -601,6 +601,8 @@ class AuthLoginView(APIView):
 class AuthRefreshView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth_refresh'
 
     @swagger_auto_schema(
         tags=['01 Sesión'],
@@ -643,6 +645,8 @@ class AuthRefreshView(APIView):
 class AuthLogoutView(APIView):
     authentication_classes = [CognitoJWTAuthentication]
     permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth_logout'
 
     @swagger_auto_schema(
         tags=['01 Sesión'],
