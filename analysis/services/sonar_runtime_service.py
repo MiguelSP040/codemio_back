@@ -107,7 +107,6 @@ def _sanitize_secret_text(text: str, token: str) -> str:
 
 
 def _run_scanner(
-    source_dir: Path,
     workspace_dir: Path,
     project_key: str,
     source_name: str,
@@ -200,11 +199,8 @@ def _extract_effort_minutes(effort: str | None) -> int | None:
 
 
 def _fetch_issues(project_key: str, config: _SonarConfig) -> list[NormalizedFinding]:
-    findings: list[NormalizedFinding] = []
-    page = 1
-    page_size = 500
-    while True:
-        query = urlencode(
+    def _build_query(page: int, page_size: int) -> str:
+        return urlencode(
             {
                 'componentKeys': project_key,
                 'organization': config.organization,
@@ -214,6 +210,27 @@ def _fetch_issues(project_key: str, config: _SonarConfig) -> list[NormalizedFind
                 'p': page,
             }
         )
+
+    def _to_finding(issue: dict) -> NormalizedFinding:
+        text_range = issue.get('textRange') or {}
+        return NormalizedFinding(
+            tool='sonarcloud',
+            severity=_SEVERITY_MAP.get(str(issue.get('severity', '')).upper(), 'LOW'),
+            rule=str(issue.get('rule') or ''),
+            issue_key=str(issue.get('key') or ''),
+            issue_status=str(issue.get('status') or ''),
+            file_path=_normalize_component_path(str(issue.get('component') or '')),
+            line=int(text_range.get('startLine')) if text_range.get('startLine') else None,
+            message=str(issue.get('message') or ''),
+            finding_type=str(issue.get('type') or ''),
+            effort_minutes=_extract_effort_minutes(issue.get('effort')),
+        )
+
+    findings: list[NormalizedFinding] = []
+    page = 1
+    page_size = 500
+    while True:
+        query = _build_query(page=page, page_size=page_size)
         payload = _get_json(
             f'{config.host_url}/api/issues/search?{query}',
             token=config.token,
@@ -221,21 +238,7 @@ def _fetch_issues(project_key: str, config: _SonarConfig) -> list[NormalizedFind
         )
         issues = payload.get('issues') or []
         for issue in issues:
-            text_range = issue.get('textRange') or {}
-            findings.append(
-                NormalizedFinding(
-                    tool='sonarcloud',
-                    severity=_SEVERITY_MAP.get(str(issue.get('severity', '')).upper(), 'LOW'),
-                    rule=str(issue.get('rule') or ''),
-                    issue_key=str(issue.get('key') or ''),
-                    issue_status=str(issue.get('status') or ''),
-                    file_path=_normalize_component_path(str(issue.get('component') or '')),
-                    line=int(text_range.get('startLine')) if text_range.get('startLine') else None,
-                    message=str(issue.get('message') or ''),
-                    finding_type=str(issue.get('type') or ''),
-                    effort_minutes=_extract_effort_minutes(issue.get('effort')),
-                )
-            )
+            findings.append(_to_finding(issue))
         paging = payload.get('paging') or {}
         total = int(paging.get('total') or 0)
         if page * page_size >= total:
@@ -363,7 +366,6 @@ def _evaluate_mvp_quality_gate(
 
 def push_sonar_scan_only(
     *,
-    source_dir: Path,
     workspace_dir: Path,
     project_key: str,
     source_name: str,
@@ -371,7 +373,6 @@ def push_sonar_scan_only(
 
     config = _build_config()
     _run_scanner(
-        source_dir=source_dir,
         workspace_dir=workspace_dir,
         project_key=project_key,
         source_name=source_name,
@@ -381,7 +382,6 @@ def push_sonar_scan_only(
 
 def run_sonar_analysis(
     *,
-    source_dir: Path,
     workspace_dir: Path,
     project_key: str,
     source_name: str,
@@ -389,7 +389,6 @@ def run_sonar_analysis(
 
     config = _build_config()
     push_sonar_scan_only(
-        source_dir=source_dir,
         workspace_dir=workspace_dir,
         project_key=project_key,
         source_name=source_name,

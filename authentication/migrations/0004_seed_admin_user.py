@@ -8,9 +8,9 @@ ADMIN_AGE = 21
 
 
 def seed_admin_user(apps, schema_editor):
-    Usuario = apps.get_model('authentication', 'Usuario')
-    CognitoUser = apps.get_model('authentication', 'CognitoUser')
-    user, created = Usuario.objects.get_or_create(
+    usuario_model = apps.get_model('authentication', 'Usuario')
+    cognito_user_model = apps.get_model('authentication', 'CognitoUser')
+    user, _ = usuario_model.objects.get_or_create(
         correo=ADMIN_EMAIL,
         defaults={
             'rol': 'admin',
@@ -35,7 +35,7 @@ def seed_admin_user(apps, schema_editor):
     if fields_to_update:
         user.save(update_fields=fields_to_update)
 
-    cognito_user, _ = CognitoUser.objects.get_or_create(
+    cognito_user, _ = cognito_user_model.objects.get_or_create(
         email=ADMIN_EMAIL,
         defaults={
             'username': ADMIN_EMAIL,
@@ -58,10 +58,10 @@ def seed_admin_user(apps, schema_editor):
 
 
 def reverse_seed_admin_user(apps, schema_editor):
-    Usuario = apps.get_model('authentication', 'Usuario')
+    usuario_model = apps.get_model('authentication', 'Usuario')
     try:
-        user = Usuario.objects.get(correo=ADMIN_EMAIL)
-    except Usuario.DoesNotExist:
+        user = usuario_model.objects.get(correo=ADMIN_EMAIL)
+    except usuario_model.DoesNotExist:
         return
     if user.rol == 'admin':
         user.rol = 'user'

@@ -19,6 +19,74 @@ def _normalize_file_path(raw_path: str) -> str:
     return Path(normalized).name if normalized else ''
 
 
+def _log_finalize_skip(*, run_id: int, t0: float, reason: str, run: AnalysisRun | None = None, webhook_task_id: str = '', findings_count: int = 0) -> None:
+    analysis_instr_log(
+        logger,
+        'sonar_finalize_skipped_not_waiting',
+        run_id=run_id,
+        sonar_project_key=((run.sonar_project_key if run else '') or '')[:120],
+        task_id=(webhook_task_id or '')[:64],
+        duration_ms=int((time.perf_counter() - t0) * 1000),
+        findings_count=findings_count,
+        quality_gate_status='',
+        error_type='',
+        error_message='',
+        reason=reason,
+        status=run.status if run is not None else '',
+    )
+
+
+def _persist_final_metrics(run: AnalysisRun, findings, metrics, now, webhook_task_id: str, webhook_analysed_at: str) -> None:
+    run.status = AnalysisRunStatus.DONE
+    run.quality_gate_status = metrics.quality_gate_status
+    run.bugs = metrics.bugs
+    run.vulnerabilities = metrics.vulnerabilities
+    run.code_smells = metrics.code_smells
+    run.complexity = metrics.complexity
+    run.duplicated_lines_density = metrics.duplicated_lines_density
+    run.duplicated_lines = metrics.duplicated_lines
+    run.coverage = metrics.coverage
+    run.lines_to_cover = metrics.lines_to_cover
+    run.ncloc = metrics.ncloc
+    run.reliability_rating = metrics.reliability_rating
+    run.security_rating = metrics.security_rating
+    run.maintainability_rating = metrics.maintainability_rating
+    run.findings_count = len(findings)
+    run.finished_at = now
+    run.last_sonar_sync_at = now
+    run.error_summary = ''
+    run.error_detail = ''
+    if webhook_task_id:
+        run.sonar_task_id = str(webhook_task_id)[:128]
+    if webhook_analysed_at:
+        run.sonar_analysis_id = str(webhook_analysed_at)[:180]
+    run.save(
+        update_fields=[
+            'status',
+            'quality_gate_status',
+            'bugs',
+            'vulnerabilities',
+            'code_smells',
+            'complexity',
+            'duplicated_lines_density',
+            'duplicated_lines',
+            'coverage',
+            'lines_to_cover',
+            'ncloc',
+            'reliability_rating',
+            'security_rating',
+            'maintainability_rating',
+            'findings_count',
+            'finished_at',
+            'last_sonar_sync_at',
+            'error_summary',
+            'error_detail',
+            'sonar_task_id',
+            'sonar_analysis_id',
+        ]
+    )
+
+
 def finalize_analysis_run_from_sonar_api(
     run_id: int,
     *,
@@ -30,50 +98,13 @@ def finalize_analysis_run_from_sonar_api(
     with transaction.atomic():
         run = AnalysisRun.objects.select_for_update().filter(pk=run_id).first()
         if run is None:
-            analysis_instr_log(
-                logger,
-                'sonar_finalize_skipped_not_waiting',
-                run_id=run_id,
-                sonar_project_key='',
-                task_id=(webhook_task_id or '')[:64],
-                duration_ms=int((time.perf_counter() - t0) * 1000),
-                findings_count=0,
-                quality_gate_status='',
-                error_type='',
-                error_message='',
-                reason='no_run',
-            )
+            _log_finalize_skip(run_id=run_id, t0=t0, reason='no_run', webhook_task_id=webhook_task_id)
             return False
         if run.status != AnalysisRunStatus.WAITING_SONAR_WEBHOOK:
-            analysis_instr_log(
-                logger,
-                'sonar_finalize_skipped_not_waiting',
-                run_id=run_id,
-                sonar_project_key=(run.sonar_project_key or '')[:120],
-                task_id=(webhook_task_id or '')[:64],
-                duration_ms=int((time.perf_counter() - t0) * 1000),
-                findings_count=0,
-                quality_gate_status='',
-                error_type='',
-                error_message='',
-                reason='wrong_status',
-                status=run.status,
-            )
+            _log_finalize_skip(run_id=run_id, t0=t0, reason='wrong_status', run=run, webhook_task_id=webhook_task_id)
             return False
         if not (run.sonar_project_key or '').strip():
-            analysis_instr_log(
-                logger,
-                'sonar_finalize_skipped_not_waiting',
-                run_id=run_id,
-                sonar_project_key='',
-                task_id=(webhook_task_id or '')[:64],
-                duration_ms=int((time.perf_counter() - t0) * 1000),
-                findings_count=0,
-                quality_gate_status='',
-                error_type='',
-                error_message='',
-                reason='no_sonar_project_key',
-            )
+            _log_finalize_skip(run_id=run_id, t0=t0, reason='no_sonar_project_key', run=run, webhook_task_id=webhook_task_id)
             return False
 
     sk = (run.sonar_project_key or '')[:120]
@@ -116,20 +147,13 @@ def finalize_analysis_run_from_sonar_api(
         with transaction.atomic():
             run = AnalysisRun.objects.select_for_update().filter(pk=run_id).first()
             if run is None or run.status != AnalysisRunStatus.WAITING_SONAR_WEBHOOK:
-                duration_ms = int((time.perf_counter() - t0) * 1000)
-                analysis_instr_log(
-                    logger,
-                    'sonar_finalize_skipped_not_waiting',
+                _log_finalize_skip(
                     run_id=run_id,
-                    sonar_project_key=sk,
-                    task_id=(webhook_task_id or '')[:64],
-                    duration_ms=duration_ms,
-                    findings_count=len(findings) if findings else 0,
-                    quality_gate_status='',
-                    error_type='',
-                    error_message='',
+                    t0=t0,
                     reason='race_after_fetch',
-                    status=run.status if run is not None else '',
+                    run=run,
+                    webhook_task_id=webhook_task_id,
+                    findings_count=len(findings) if findings else 0,
                 )
                 return False
 
@@ -155,53 +179,13 @@ def finalize_analysis_run_from_sonar_api(
                     ]
                 )
 
-            run.status = AnalysisRunStatus.DONE
-            run.quality_gate_status = metrics.quality_gate_status
-            run.bugs = metrics.bugs
-            run.vulnerabilities = metrics.vulnerabilities
-            run.code_smells = metrics.code_smells
-            run.complexity = metrics.complexity
-            run.duplicated_lines_density = metrics.duplicated_lines_density
-            run.duplicated_lines = metrics.duplicated_lines
-            run.coverage = metrics.coverage
-            run.lines_to_cover = metrics.lines_to_cover
-            run.ncloc = metrics.ncloc
-            run.reliability_rating = metrics.reliability_rating
-            run.security_rating = metrics.security_rating
-            run.maintainability_rating = metrics.maintainability_rating
-            run.findings_count = len(findings)
-            run.finished_at = now
-            run.last_sonar_sync_at = now
-            run.error_summary = ''
-            run.error_detail = ''
-            if webhook_task_id:
-                run.sonar_task_id = str(webhook_task_id)[:128]
-            if webhook_analysed_at:
-                run.sonar_analysis_id = str(webhook_analysed_at)[:180]
-            run.save(
-                update_fields=[
-                    'status',
-                    'quality_gate_status',
-                    'bugs',
-                    'vulnerabilities',
-                    'code_smells',
-                    'complexity',
-                    'duplicated_lines_density',
-                    'duplicated_lines',
-                    'coverage',
-                    'lines_to_cover',
-                    'ncloc',
-                    'reliability_rating',
-                    'security_rating',
-                    'maintainability_rating',
-                    'findings_count',
-                    'finished_at',
-                    'last_sonar_sync_at',
-                    'error_summary',
-                    'error_detail',
-                    'sonar_task_id',
-                    'sonar_analysis_id',
-                ]
+            _persist_final_metrics(
+                run,
+                findings=findings,
+                metrics=metrics,
+                now=now,
+                webhook_task_id=webhook_task_id,
+                webhook_analysed_at=webhook_analysed_at,
             )
     except Exception as exc:
         duration_ms = int((time.perf_counter() - t0) * 1000)

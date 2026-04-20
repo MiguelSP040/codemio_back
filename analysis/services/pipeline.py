@@ -74,6 +74,120 @@ def _execute_analysis_run_guarded(
         _INFLIGHT_SEMAPHORE.release()
 
 
+def _prepare_workspace(source_name: str, source_bytes: bytes, input_type: str, run_id: int) -> tuple[Path, Path, int, str, object]:
+    temp_dir_ctx = TemporaryDirectory(prefix=f'codemio-analysis-{run_id}-')
+    workspace_dir = Path(temp_dir_ctx.name)
+    source_dir = workspace_dir / 'source'
+    source_dir.mkdir(parents=True, exist_ok=True)
+    uploaded_file = workspace_dir / Path(source_name).name
+    uploaded_file.write_bytes(source_bytes)
+    if input_type == AnalysisInputType.ZIP:
+        total_files = _extract_zip(uploaded_file, source_dir)
+    else:
+        target = source_dir / Path(source_name).name
+        target.write_bytes(source_bytes)
+        total_files = 1
+    project_prefix = str(getattr(settings, 'SONAR_RUNTIME_PROJECT_PREFIX', 'codemio-runtime')).strip()
+    sonar_project_key = f'{project_prefix}-{run_id}'
+    return workspace_dir, source_dir, total_files, sonar_project_key, temp_dir_ctx
+
+
+def _save_waiting_run_state(run: AnalysisRun, *, sonar_project_key: str, syntax_metrics, total_files: int) -> None:
+    run.status = AnalysisRunStatus.WAITING_SONAR_WEBHOOK
+    run.sonar_project_key = sonar_project_key
+    run.classes_count = syntax_metrics.classes_count
+    run.methods_count = syntax_metrics.methods_count
+    run.parameters_count = syntax_metrics.parameters_count
+    run.inheritance_count = syntax_metrics.inheritance_count
+    run.interclass_calls_count = syntax_metrics.interclass_calls_count
+    run.total_files_analyzed = total_files
+    run.findings_count = 0
+    run.quality_gate_status = ''
+    run.bugs = 0
+    run.vulnerabilities = 0
+    run.code_smells = 0
+    run.complexity = 0
+    run.duplicated_lines_density = 0.0
+    run.duplicated_lines = 0
+    run.coverage = 0.0
+    run.lines_to_cover = 0
+    run.ncloc = 0
+    run.reliability_rating = 0
+    run.security_rating = 0
+    run.maintainability_rating = 0
+    run.error_summary = ''
+    run.error_detail = ''
+    run.save(
+        update_fields=[
+            'status',
+            'sonar_project_key',
+            'classes_count',
+            'methods_count',
+            'parameters_count',
+            'inheritance_count',
+            'interclass_calls_count',
+            'total_files_analyzed',
+            'findings_count',
+            'quality_gate_status',
+            'bugs',
+            'vulnerabilities',
+            'code_smells',
+            'complexity',
+            'duplicated_lines_density',
+            'duplicated_lines',
+            'coverage',
+            'lines_to_cover',
+            'ncloc',
+            'reliability_rating',
+            'security_rating',
+            'maintainability_rating',
+            'error_summary',
+            'error_detail',
+        ]
+    )
+
+
+def _process_analysis_attempt(run: AnalysisRun, *, run_id: int, source_name: str, source_bytes: bytes, input_type: str) -> tuple[int, str]:
+    workspace_dir, source_dir, total_files, sonar_project_key, temp_ctx = _prepare_workspace(
+        source_name=source_name,
+        source_bytes=source_bytes,
+        input_type=input_type,
+        run_id=run_id,
+    )
+    try:
+        push_sonar_scan_only(
+            workspace_dir=workspace_dir,
+            project_key=sonar_project_key,
+            source_name=source_name,
+        )
+        syntax_metrics = extract_java_syntax_metrics(source_dir)
+    finally:
+        temp_ctx.cleanup()
+
+    AnalysisFileMetric.objects.filter(run=run).delete()
+    AnalysisFileMetric.objects.bulk_create(
+        [
+            AnalysisFileMetric(
+                run=run,
+                file_path=item.file_path,
+                classes_count=item.classes_count,
+                methods_count=item.methods_count,
+                parameters_count=item.parameters_count,
+                inheritance_count=item.inheritance_count,
+                interclass_calls_count=item.interclass_calls_count,
+            )
+            for item in syntax_metrics.files
+        ]
+    )
+    _save_waiting_run_state(
+        run,
+        sonar_project_key=sonar_project_key,
+        syntax_metrics=syntax_metrics,
+        total_files=total_files,
+    )
+    return total_files, sonar_project_key
+
+
 def _execute_analysis_run(
     run_id: int,
     source_name: str,
@@ -104,113 +218,27 @@ def _execute_analysis_run(
 
     for attempt in range(1, max_retries + 2):
         try:
-            with TemporaryDirectory(prefix=f'codemio-analysis-{run_id}-') as temp_dir:
-                workspace_dir = Path(temp_dir)
-                source_dir = workspace_dir / 'source'
-                source_dir.mkdir(parents=True, exist_ok=True)
-
-                uploaded_file = workspace_dir / Path(source_name).name
-                uploaded_file.write_bytes(source_bytes)
-
-                if input_type == AnalysisInputType.ZIP:
-                    total_files = _extract_zip(uploaded_file, source_dir)
-                else:
-                    target = source_dir / Path(source_name).name
-                    target.write_bytes(source_bytes)
-                    total_files = 1
-
-                project_prefix = str(getattr(settings, 'SONAR_RUNTIME_PROJECT_PREFIX', 'codemio-runtime')).strip()
-                sonar_project_key = f'{project_prefix}-{run.id}'
-                push_sonar_scan_only(
-                    source_dir=source_dir,
-                    workspace_dir=workspace_dir,
-                    project_key=sonar_project_key,
-                    source_name=source_name,
-                )
-                syntax_metrics = extract_java_syntax_metrics(source_dir)
-
-                AnalysisFileMetric.objects.filter(run=run).delete()
-                AnalysisFileMetric.objects.bulk_create(
-                    [
-                        AnalysisFileMetric(
-                            run=run,
-                            file_path=item.file_path,
-                            classes_count=item.classes_count,
-                            methods_count=item.methods_count,
-                            parameters_count=item.parameters_count,
-                            inheritance_count=item.inheritance_count,
-                            interclass_calls_count=item.interclass_calls_count,
-                        )
-                        for item in syntax_metrics.files
-                    ]
-                )
-
-                run.status = AnalysisRunStatus.WAITING_SONAR_WEBHOOK
-                run.sonar_project_key = sonar_project_key
-                run.classes_count = syntax_metrics.classes_count
-                run.methods_count = syntax_metrics.methods_count
-                run.parameters_count = syntax_metrics.parameters_count
-                run.inheritance_count = syntax_metrics.inheritance_count
-                run.interclass_calls_count = syntax_metrics.interclass_calls_count
-                run.total_files_analyzed = total_files
-                run.findings_count = 0
-                run.quality_gate_status = ''
-                run.bugs = 0
-                run.vulnerabilities = 0
-                run.code_smells = 0
-                run.complexity = 0
-                run.duplicated_lines_density = 0.0
-                run.duplicated_lines = 0
-                run.coverage = 0.0
-                run.lines_to_cover = 0
-                run.ncloc = 0
-                run.reliability_rating = 0
-                run.security_rating = 0
-                run.maintainability_rating = 0
-                run.error_summary = ''
-                run.error_detail = ''
-                run.save(
-                    update_fields=[
-                        'status',
-                        'sonar_project_key',
-                        'classes_count',
-                        'methods_count',
-                        'parameters_count',
-                        'inheritance_count',
-                        'interclass_calls_count',
-                        'total_files_analyzed',
-                        'findings_count',
-                        'quality_gate_status',
-                        'bugs',
-                        'vulnerabilities',
-                        'code_smells',
-                        'complexity',
-                        'duplicated_lines_density',
-                        'duplicated_lines',
-                        'coverage',
-                        'lines_to_cover',
-                        'ncloc',
-                        'reliability_rating',
-                        'security_rating',
-                        'maintainability_rating',
-                        'error_summary',
-                        'error_detail',
-                    ]
-                )
-                duration_ms = int((time.perf_counter() - t_pipeline) * 1000)
-                analysis_instr_log(
-                    logger,
-                    'analysis_run_waiting_sonar_webhook',
-                    run_id=run.id,
-                    project_id=run.project_id,
-                    status=run.status,
-                    sonar_project_key=(sonar_project_key or '')[:120],
-                    input_type=input_type,
-                    original_filename=(source_name or '')[:120],
-                    duration_ms=duration_ms,
-                    total_files_analyzed=total_files,
-                )
-                return
+            total_files, sonar_project_key = _process_analysis_attempt(
+                run,
+                run_id=run_id,
+                source_name=source_name,
+                source_bytes=source_bytes,
+                input_type=input_type,
+            )
+            duration_ms = int((time.perf_counter() - t_pipeline) * 1000)
+            analysis_instr_log(
+                logger,
+                'analysis_run_waiting_sonar_webhook',
+                run_id=run.id,
+                project_id=run.project_id,
+                status=run.status,
+                sonar_project_key=(sonar_project_key or '')[:120],
+                input_type=input_type,
+                original_filename=(source_name or '')[:120],
+                duration_ms=duration_ms,
+                total_files_analyzed=total_files,
+            )
+            return
         except Exception as exc:
             trace = traceback.format_exc(limit=10)
             if attempt <= max_retries:
@@ -263,31 +291,21 @@ def _extract_zip(zip_path: Path, target_dir: Path) -> int:
             processed_entries += 1
             if processed_entries > max_entries:
                 raise RuntimeError('ZIP inválido: excede el número máximo de entradas permitidas.')
-            if member.is_dir():
+            clean_parts = _validate_zip_member(
+                member,
+                max_depth=max_depth,
+                max_entry_bytes=max_entry_bytes,
+                max_compression_ratio=max_compression_ratio,
+            )
+            if clean_parts is None:
                 continue
-            if _is_unsafe_zip_member(member):
-                raise RuntimeError('ZIP inválido: contiene entradas no permitidas (enlace/sistema).')
-            member_path = _normalize_zip_member_path(member.filename)
-            clean_parts = [part for part in member_path.parts if part and part != '.']
-            if _has_unsafe_path_parts(clean_parts):
-                raise RuntimeError('ZIP inválido: ruta insegura detectada.')
-            if len(clean_parts) > max_depth:
-                raise RuntimeError('ZIP inválido: la profundidad de rutas excede el máximo permitido.')
-            if member_path.suffix.lower() == '.zip':
-                raise RuntimeError('ZIP inválido: no se permiten archivos ZIP anidados.')
-            if member_path.suffix.lower() != '.java':
-                continue
-            if member.file_size > max_entry_bytes:
-                raise RuntimeError('ZIP inválido: un archivo excede el tamaño máximo permitido.')
-            compression_ratio = _compression_ratio(member)
-            if compression_ratio > max_compression_ratio:
-                raise RuntimeError('ZIP inválido: relación de compresión sospechosa detectada.')
-            extracted_count += 1
-            if extracted_count > max_files:
-                raise RuntimeError('ZIP excede el número máximo de archivos permitidos.')
-            extracted_size += int(member.file_size)
-            if extracted_size > max_bytes:
-                raise RuntimeError('ZIP excede el tamaño máximo permitido para extracción.')
+            extracted_count, extracted_size = _check_extraction_limits(
+                extracted_count=extracted_count,
+                extracted_size=extracted_size,
+                file_size=int(member.file_size),
+                max_files=max_files,
+                max_bytes=max_bytes,
+            )
             content = archive.read(member)
             if len(content) != int(member.file_size):
                 raise RuntimeError('ZIP inválido: tamaño real de archivo no coincide con metadatos.')
@@ -299,6 +317,52 @@ def _extract_zip(zip_path: Path, target_dir: Path) -> int:
     if extracted_count == 0:
         raise RuntimeError('No se encontraron archivos .java en el ZIP.')
     return extracted_count
+
+
+def _validate_zip_member(
+    member: zipfile.ZipInfo,
+    *,
+    max_depth: int,
+    max_entry_bytes: int,
+    max_compression_ratio: float,
+) -> list[str] | None:
+    if member.is_dir():
+        return None
+    if _is_unsafe_zip_member(member):
+        raise RuntimeError('ZIP inválido: contiene entradas no permitidas (enlace/sistema).')
+    member_path = _normalize_zip_member_path(member.filename)
+    clean_parts = [part for part in member_path.parts if part and part != '.']
+    if _has_unsafe_path_parts(clean_parts):
+        raise RuntimeError('ZIP inválido: ruta insegura detectada.')
+    if len(clean_parts) > max_depth:
+        raise RuntimeError('ZIP inválido: la profundidad de rutas excede el máximo permitido.')
+    if member_path.suffix.lower() == '.zip':
+        raise RuntimeError('ZIP inválido: no se permiten archivos ZIP anidados.')
+    if member_path.suffix.lower() != '.java':
+        return None
+    if member.file_size > max_entry_bytes:
+        raise RuntimeError('ZIP inválido: un archivo excede el tamaño máximo permitido.')
+    compression_ratio = _compression_ratio(member)
+    if compression_ratio > max_compression_ratio:
+        raise RuntimeError('ZIP inválido: relación de compresión sospechosa detectada.')
+    return clean_parts
+
+
+def _check_extraction_limits(
+    *,
+    extracted_count: int,
+    extracted_size: int,
+    file_size: int,
+    max_files: int,
+    max_bytes: int,
+) -> tuple[int, int]:
+    new_count = extracted_count + 1
+    if new_count > max_files:
+        raise RuntimeError('ZIP excede el número máximo de archivos permitidos.')
+    new_size = extracted_size + file_size
+    if new_size > max_bytes:
+        raise RuntimeError('ZIP excede el tamaño máximo permitido para extracción.')
+    return new_count, new_size
 
 
 def _is_unsafe_zip_member(member: zipfile.ZipInfo) -> bool:

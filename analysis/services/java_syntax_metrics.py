@@ -64,35 +64,40 @@ def _iter_java_files(source_dir: Path) -> Iterable[Path]:
 
 
 def _collect_file_metrics(parsed_unit, rel_path: str) -> JavaFileSyntaxMetrics:
-    classes_count = 0
-    methods_count = 0
-    parameters_count = 0
-    inheritance_count = 0
-    interclass_calls_count = 0
+    def _update_type_counters(type_node, counters: dict[str, int]) -> None:
+        if isinstance(type_node, javalang.tree.ClassDeclaration):
+            if type_node.extends is not None:
+                counters['inheritance_count'] += 1
+            if type_node.implements:
+                counters['inheritance_count'] += len(type_node.implements)
+        counters['methods_count'] += len(getattr(type_node, 'methods', []) or [])
+        counters['methods_count'] += len(getattr(type_node, 'constructors', []) or [])
+        for method in getattr(type_node, 'methods', []) or []:
+            counters['parameters_count'] += len(method.parameters or [])
+        for ctor in getattr(type_node, 'constructors', []) or []:
+            counters['parameters_count'] += len(ctor.parameters or [])
+        counters['interclass_calls_count'] += _count_interclass_calls(type_node)
+
+    counters = {
+        'classes_count': 0,
+        'methods_count': 0,
+        'parameters_count': 0,
+        'inheritance_count': 0,
+        'interclass_calls_count': 0,
+    }
 
     for _, node in parsed_unit:
         if isinstance(node, (javalang.tree.ClassDeclaration, javalang.tree.InterfaceDeclaration)):
-            classes_count += 1
-            if isinstance(node, javalang.tree.ClassDeclaration):
-                if node.extends is not None:
-                    inheritance_count += 1
-                if node.implements:
-                    inheritance_count += len(node.implements)
-            methods_count += len(getattr(node, 'methods', []) or [])
-            methods_count += len(getattr(node, 'constructors', []) or [])
-            for method in getattr(node, 'methods', []) or []:
-                parameters_count += len(method.parameters or [])
-            for ctor in getattr(node, 'constructors', []) or []:
-                parameters_count += len(ctor.parameters or [])
-            interclass_calls_count += _count_interclass_calls(node)
+            counters['classes_count'] += 1
+            _update_type_counters(node, counters)
 
     return JavaFileSyntaxMetrics(
         file_path=rel_path,
-        classes_count=classes_count,
-        methods_count=methods_count,
-        parameters_count=parameters_count,
-        inheritance_count=inheritance_count,
-        interclass_calls_count=interclass_calls_count,
+        classes_count=counters['classes_count'],
+        methods_count=counters['methods_count'],
+        parameters_count=counters['parameters_count'],
+        inheritance_count=counters['inheritance_count'],
+        interclass_calls_count=counters['interclass_calls_count'],
     )
 
 

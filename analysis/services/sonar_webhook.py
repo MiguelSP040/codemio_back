@@ -108,6 +108,37 @@ def _handle_duplicate_webhook_delivery(
     task_id: str,
     analysed_at: str,
 ) -> tuple[int, str]:
+    def _duplicate_ok(detail_reason: str, *, run: AnalysisRun | None = None, key: str = '') -> tuple[int, str]:
+        analysis_instr_log(
+            logger,
+            'sonar_webhook_duplicate',
+            digest_prefix=digest_prefix(digest),
+            project_key=(key or '')[:120],
+            run_id=run.id if run is not None else 0,
+            task_id=(task_id or '')[:64],
+            analysed_at_len=len(analysed_at or ''),
+            detail='duplicate_delivery',
+            reason=detail_reason,
+            status=run.status if run is not None else '',
+        )
+        return 200, 'duplicate_delivery'
+
+    def _can_refinalize(run: AnalysisRun, key: str) -> bool:
+        if run.status != AnalysisRunStatus.WAITING_SONAR_WEBHOOK:
+            _duplicate_ok('run_not_waiting', run=run, key=key)
+            return False
+        if run.last_sonar_sync_at is not None:
+            _duplicate_ok('already_has_last_sonar_sync', run=run, key=key)
+            return False
+        pk_run = (run.sonar_project_key or '').strip()
+        if key and pk_run and key != pk_run:
+            logger.warning(
+                'Webhook duplicado: project_key no coincide con run digest=%s...',
+                digest[:12],
+            )
+            _duplicate_ok('project_key_mismatch', run=run, key=key)
+            return False
+        return True
 
     receipt = (
         SonarWebhookReceipt.objects.select_related('analysis_run')
@@ -128,64 +159,10 @@ def _handle_duplicate_webhook_delivery(
                 orphan=False,
             )
     if run is None:
-        analysis_instr_log(
-            logger,
-            'sonar_webhook_duplicate',
-            digest_prefix=digest_prefix(digest),
-            project_key=key[:120],
-            task_id=(task_id or '')[:64],
-            analysed_at_len=len(analysed_at or ''),
-            detail='duplicate_delivery',
-            reason='no_resolved_run',
-        )
-        return 200, 'duplicate_delivery'
+        return _duplicate_ok('no_resolved_run', key=key)
 
     run.refresh_from_db()
-    if run.status != AnalysisRunStatus.WAITING_SONAR_WEBHOOK:
-        analysis_instr_log(
-            logger,
-            'sonar_webhook_duplicate',
-            digest_prefix=digest_prefix(digest),
-            project_key=key[:120],
-            run_id=run.id,
-            task_id=(task_id or '')[:64],
-            analysed_at_len=len(analysed_at or ''),
-            detail='duplicate_delivery',
-            reason='run_not_waiting',
-            status=run.status,
-        )
-        return 200, 'duplicate_delivery'
-    if run.last_sonar_sync_at is not None:
-        analysis_instr_log(
-            logger,
-            'sonar_webhook_duplicate',
-            digest_prefix=digest_prefix(digest),
-            project_key=key[:120],
-            run_id=run.id,
-            task_id=(task_id or '')[:64],
-            analysed_at_len=len(analysed_at or ''),
-            detail='duplicate_delivery',
-            reason='already_has_last_sonar_sync',
-        )
-        return 200, 'duplicate_delivery'
-
-    pk_run = (run.sonar_project_key or '').strip()
-    if key and pk_run and key != pk_run:
-        logger.warning(
-            'Webhook duplicado: project_key no coincide con run digest=%s...',
-            digest[:12],
-        )
-        analysis_instr_log(
-            logger,
-            'sonar_webhook_duplicate',
-            digest_prefix=digest_prefix(digest),
-            project_key=key[:120],
-            run_id=run.id,
-            task_id=(task_id or '')[:64],
-            analysed_at_len=len(analysed_at or ''),
-            detail='duplicate_delivery',
-            reason='project_key_mismatch',
-        )
+    if not _can_refinalize(run, key):
         return 200, 'duplicate_delivery'
 
     now = timezone.now()

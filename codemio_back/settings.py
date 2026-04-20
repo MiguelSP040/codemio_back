@@ -192,6 +192,10 @@ SWAGGER_SETTINGS = {
 }
 
 # Django REST Framework
+AUTH_RATE_LIMIT = '10/min'
+AUTH_LOGOUT_RATE_LIMIT = '20/min'
+ANALYSIS_RUNS_RATE_LIMIT = '20/min'
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.SessionAuthentication',
@@ -205,17 +209,17 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.ScopedRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'auth_send': '10/min',
-        'auth_validate': '10/min',
-        'auth_login': '10/min',
-        'auth_register': '10/min',
+        'auth_send': AUTH_RATE_LIMIT,
+        'auth_validate': AUTH_RATE_LIMIT,
+        'auth_login': AUTH_RATE_LIMIT,
+        'auth_register': AUTH_RATE_LIMIT,
         'auth_refresh': '12/min',
-        'auth_logout': '20/min',
+        'auth_logout': AUTH_LOGOUT_RATE_LIMIT,
         'auth_forgot_password': '5/min',
-        'auth_forgot_validate': '10/min',
+        'auth_forgot_validate': AUTH_RATE_LIMIT,
         'auth_confirm_forgot': '5/min',
-        'analysis_runs': '20/min',
-        'analysis_runs_write': '20/min',
+        'analysis_runs': ANALYSIS_RUNS_RATE_LIMIT,
+        'analysis_runs_write': ANALYSIS_RUNS_RATE_LIMIT,
         'analysis_runs_read': '240/min',
         'sonar_webhook': '120/min',
     },

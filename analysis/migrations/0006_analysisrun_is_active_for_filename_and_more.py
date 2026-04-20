@@ -10,9 +10,9 @@ def _normalize_logical_filename(raw_name: str) -> str:
 
 
 def _backfill_logical_filename_and_active_state(apps, schema_editor):
-    AnalysisRun = apps.get_model('analysis', 'AnalysisRun')
+    analysis_run_model = apps.get_model('analysis', 'AnalysisRun')
     runs = list(
-        AnalysisRun.objects.all()
+        analysis_run_model.objects.all()
         .order_by('project_id', 'id')
         .only('id', 'project_id', 'original_filename')
     )
@@ -26,7 +26,7 @@ def _backfill_logical_filename_and_active_state(apps, schema_editor):
     for run in runs:
         logical_filename = _normalize_logical_filename(run.original_filename)
         key = (run.project_id, logical_filename)
-        AnalysisRun.objects.filter(pk=run.id).update(
+        analysis_run_model.objects.filter(pk=run.id).update(
             logical_filename=logical_filename,
             is_active_for_filename=(run.id == latest_run_by_key[key]),
         )
