@@ -3,19 +3,17 @@ from django.db.models import Q
 from authentication.models import Usuario
 from projects.models import Project
 
-
 class AnalysisRunStatus(models.TextChoices):
     PENDING = 'PENDING', 'Pending'
     RUNNING = 'RUNNING', 'Running'
+    WAITING_SONAR_WEBHOOK = 'WAITING_SONAR_WEBHOOK', 'Waiting Sonar Webhook'
     DONE = 'DONE', 'Done'
     FAILED = 'FAILED', 'Failed'
     CANCELED = 'CANCELED', 'Canceled'
 
-
 class AnalysisInputType(models.TextChoices):
     JAVA = 'java', 'Java'
     ZIP = 'zip', 'Zip'
-
 
 class AnalysisRun(models.Model):
     project = models.ForeignKey(
@@ -31,7 +29,7 @@ class AnalysisRun(models.Model):
         db_column='user_id',
     )
     status = models.CharField(
-        max_length=20,
+        max_length=28,
         choices=AnalysisRunStatus.choices,
         default=AnalysisRunStatus.PENDING,
         db_index=True,
@@ -41,7 +39,11 @@ class AnalysisRun(models.Model):
     logical_filename = models.CharField(max_length=255, db_index=True, blank=True, default='')
     is_active_for_filename = models.BooleanField(default=True, db_index=True)
     source_sha256 = models.CharField(max_length=64, blank=True, default='')
-    sonar_project_key = models.CharField(max_length=255, blank=True, default='')
+    sonar_project_key = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    sonar_task_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    sonar_analysis_id = models.CharField(max_length=180, blank=True, default='', db_index=True)
+    webhook_received_at = models.DateTimeField(null=True, blank=True)
+    last_sonar_sync_at = models.DateTimeField(null=True, blank=True)
     quality_gate_status = models.CharField(max_length=20, blank=True, default='')
     bugs = models.PositiveIntegerField(default=0)
     vulnerabilities = models.PositiveIntegerField(default=0)
@@ -137,3 +139,21 @@ class AnalysisFileMetric(models.Model):
         indexes = [
             models.Index(fields=['run', 'file_path']),
         ]
+
+
+class SonarWebhookReceipt(models.Model):
+
+    payload_sha256 = models.CharField(max_length=64, unique=True, db_index=True)
+    project_key = models.CharField(max_length=255, blank=True, default='')
+    analysis_run = models.ForeignKey(
+        AnalysisRun,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='sonar_webhook_receipts',
+    )
+    orphan = models.BooleanField(default=False)
+    received_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-received_at']

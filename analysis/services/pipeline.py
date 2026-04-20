@@ -1,3 +1,4 @@
+import logging
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -8,10 +9,12 @@ from tempfile import TemporaryDirectory
 import time
 import zipfile
 from django.conf import settings
-from analysis.models import AnalysisFileMetric, AnalysisFinding, AnalysisInputType, AnalysisRun, AnalysisRunStatus
+from analysis.instrumentation import analysis_instr_log
+from analysis.models import AnalysisFileMetric, AnalysisInputType, AnalysisRun, AnalysisRunStatus
 from analysis.services.java_syntax_metrics import extract_java_syntax_metrics
-from analysis.services.sonar_runtime_service import run_sonar_analysis
+from analysis.services.sonar_runtime_service import push_sonar_scan_only
 
+logger = logging.getLogger(__name__)
 
 _EXECUTOR = ThreadPoolExecutor(max_workers=int(getattr(settings, 'ANALYSIS_WORKERS', 2)))
 _MAX_INFLIGHT_TASKS = max(int(getattr(settings, 'ANALYSIS_MAX_INFLIGHT_TASKS', 50)), 1)
@@ -32,6 +35,19 @@ def start_analysis_run(
         run.error_summary = 'Cola de análisis saturada. Intenta nuevamente en unos minutos.'
         run.error_detail = 'analysis_queue_overloaded'
         run.save(update_fields=['status', 'finished_at', 'error_summary', 'error_detail'])
+        analysis_instr_log(
+            logger,
+            'analysis_run_failed_before_webhook',
+            run_id=run.id,
+            project_id=run.project_id,
+            status=run.status,
+            sonar_project_key=(run.sonar_project_key or '')[:80],
+            input_type=run.input_type,
+            original_filename=(run.original_filename or '')[:120],
+            duration_ms=0,
+            error_type='queue_saturated',
+            error_message='analysis_queue_overloaded',
+        )
         return
     try:
         _EXECUTOR.submit(
@@ -70,6 +86,18 @@ def _execute_analysis_run(
     run.error_summary = ''
     run.error_detail = ''
     run.save(update_fields=['status', 'started_at', 'error_summary', 'error_detail', 'updated_at'] if hasattr(run, 'updated_at') else ['status', 'started_at', 'error_summary', 'error_detail'])
+    t_pipeline = time.perf_counter()
+    analysis_instr_log(
+        logger,
+        'analysis_run_started',
+        run_id=run.id,
+        project_id=run.project_id,
+        status=run.status,
+        sonar_project_key=(run.sonar_project_key or '')[:80],
+        input_type=run.input_type,
+        original_filename=(run.original_filename or '')[:120],
+        duration_ms=0,
+    )
 
     max_retries = max(int(getattr(settings, 'ANALYSIS_RETRY_ATTEMPTS', 2)), 0)
     retry_backoff_seconds = max(float(getattr(settings, 'ANALYSIS_RETRY_BACKOFF_SECONDS', 1.5)), 0.0)
@@ -93,35 +121,14 @@ def _execute_analysis_run(
 
                 project_prefix = str(getattr(settings, 'SONAR_RUNTIME_PROJECT_PREFIX', 'codemio-runtime')).strip()
                 sonar_project_key = f'{project_prefix}-{run.id}'
-                sonar_result = run_sonar_analysis(
+                push_sonar_scan_only(
                     source_dir=source_dir,
                     workspace_dir=workspace_dir,
                     project_key=sonar_project_key,
                     source_name=source_name,
                 )
-                findings = sonar_result.findings
                 syntax_metrics = extract_java_syntax_metrics(source_dir)
 
-                AnalysisFinding.objects.filter(run=run).delete()
-                AnalysisFinding.objects.bulk_create(
-                    [
-                        AnalysisFinding(
-                            run=run,
-                            tool=finding.tool,
-                            severity=finding.severity,
-                            rule=finding.rule,
-                            issue_key=finding.issue_key,
-                            issue_status=finding.issue_status,
-                            file_path=_normalize_file_path(finding.file_path),
-                            line=finding.line,
-                            message=finding.message,
-                            message_es=finding.message,
-                            finding_type=finding.finding_type,
-                            effort_minutes=finding.effort_minutes,
-                        )
-                        for finding in findings
-                    ]
-                )
                 AnalysisFileMetric.objects.filter(run=run).delete()
                 AnalysisFileMetric.objects.bulk_create(
                     [
@@ -138,35 +145,41 @@ def _execute_analysis_run(
                     ]
                 )
 
-                run.status = AnalysisRunStatus.DONE
+                run.status = AnalysisRunStatus.WAITING_SONAR_WEBHOOK
                 run.sonar_project_key = sonar_project_key
-                run.quality_gate_status = sonar_result.metrics.quality_gate_status
-                run.bugs = sonar_result.metrics.bugs
-                run.vulnerabilities = sonar_result.metrics.vulnerabilities
-                run.code_smells = sonar_result.metrics.code_smells
-                run.complexity = sonar_result.metrics.complexity
-                run.duplicated_lines_density = sonar_result.metrics.duplicated_lines_density
-                run.duplicated_lines = sonar_result.metrics.duplicated_lines
-                run.coverage = sonar_result.metrics.coverage
-                run.lines_to_cover = sonar_result.metrics.lines_to_cover
-                run.ncloc = sonar_result.metrics.ncloc
-                run.reliability_rating = sonar_result.metrics.reliability_rating
-                run.security_rating = sonar_result.metrics.security_rating
-                run.maintainability_rating = sonar_result.metrics.maintainability_rating
                 run.classes_count = syntax_metrics.classes_count
                 run.methods_count = syntax_metrics.methods_count
                 run.parameters_count = syntax_metrics.parameters_count
                 run.inheritance_count = syntax_metrics.inheritance_count
                 run.interclass_calls_count = syntax_metrics.interclass_calls_count
                 run.total_files_analyzed = total_files
-                run.findings_count = len(findings)
-                run.finished_at = datetime.now(timezone.utc)
+                run.findings_count = 0
+                run.quality_gate_status = ''
+                run.bugs = 0
+                run.vulnerabilities = 0
+                run.code_smells = 0
+                run.complexity = 0
+                run.duplicated_lines_density = 0.0
+                run.duplicated_lines = 0
+                run.coverage = 0.0
+                run.lines_to_cover = 0
+                run.ncloc = 0
+                run.reliability_rating = 0
+                run.security_rating = 0
+                run.maintainability_rating = 0
                 run.error_summary = ''
                 run.error_detail = ''
                 run.save(
                     update_fields=[
                         'status',
                         'sonar_project_key',
+                        'classes_count',
+                        'methods_count',
+                        'parameters_count',
+                        'inheritance_count',
+                        'interclass_calls_count',
+                        'total_files_analyzed',
+                        'findings_count',
                         'quality_gate_status',
                         'bugs',
                         'vulnerabilities',
@@ -180,17 +193,22 @@ def _execute_analysis_run(
                         'reliability_rating',
                         'security_rating',
                         'maintainability_rating',
-                        'classes_count',
-                        'methods_count',
-                        'parameters_count',
-                        'inheritance_count',
-                        'interclass_calls_count',
-                        'total_files_analyzed',
-                        'findings_count',
-                        'finished_at',
                         'error_summary',
                         'error_detail',
                     ]
+                )
+                duration_ms = int((time.perf_counter() - t_pipeline) * 1000)
+                analysis_instr_log(
+                    logger,
+                    'analysis_run_waiting_sonar_webhook',
+                    run_id=run.id,
+                    project_id=run.project_id,
+                    status=run.status,
+                    sonar_project_key=(sonar_project_key or '')[:120],
+                    input_type=input_type,
+                    original_filename=(source_name or '')[:120],
+                    duration_ms=duration_ms,
+                    total_files_analyzed=total_files,
                 )
                 return
         except Exception as exc:
@@ -211,6 +229,21 @@ def _execute_analysis_run(
             run.error_summary = str(exc)[:255]
             run.error_detail = trace
             run.save(update_fields=['status', 'finished_at', 'error_summary', 'error_detail'])
+            duration_ms = int((time.perf_counter() - t_pipeline) * 1000)
+            analysis_instr_log(
+                logger,
+                'analysis_run_failed_before_webhook',
+                run_id=run.id,
+                project_id=run.project_id,
+                status=run.status,
+                sonar_project_key=(run.sonar_project_key or '')[:120],
+                input_type=input_type,
+                original_filename=(source_name or '')[:120],
+                duration_ms=duration_ms,
+                error_type=type(exc).__name__,
+                error_message=str(exc)[:200],
+                attempt=attempt,
+            )
             return
 
 

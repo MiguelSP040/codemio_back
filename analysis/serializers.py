@@ -1,17 +1,18 @@
 import hashlib
+import logging
 from pathlib import Path
 from django.conf import settings
 from django.db import transaction
 from rest_framework import serializers
+from analysis.instrumentation import analysis_instr_log
 from analysis.models import AnalysisFileMetric, AnalysisFinding, AnalysisInputType, AnalysisRun
+logger = logging.getLogger(__name__)
 from analysis.services.pipeline import start_analysis_run
 from projects.models import Project, ProjectState
-
 
 def normalize_logical_filename(raw_name: str) -> str:
     normalized = str(raw_name or '').replace('\\', '/').strip()
     return Path(normalized).name.lower()
-
 
 class AnalysisFindingSerializer(serializers.ModelSerializer):
     class Meta:
@@ -127,6 +128,39 @@ class AnalysisRunSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class AnalysisRunStatusSerializer(serializers.ModelSerializer):
+
+    project_id = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = AnalysisRun
+        fields = (
+            'id',
+            'project_id',
+            'status',
+            'input_type',
+            'original_filename',
+            'logical_filename',
+            'is_active_for_filename',
+            'quality_gate_status',
+            'findings_count',
+            'error_summary',
+            'error_detail',
+            'created_at',
+            'started_at',
+            'finished_at',
+        )
+        read_only_fields = fields
+
+class AnalysisRunListSerializer(AnalysisRunSerializer):
+
+    class Meta(AnalysisRunSerializer.Meta):
+        fields = tuple(
+            f for f in AnalysisRunSerializer.Meta.fields
+            if f not in ('findings', 'file_metrics', 'metrics')
+        )
+
+
 class AnalysisRunCreateSerializer(serializers.Serializer):
     project_id = serializers.IntegerField()
     source_file = serializers.FileField()
@@ -183,6 +217,17 @@ class AnalysisRunCreateSerializer(serializers.Serializer):
             )
             run.overwrite_applied = overwrite_applied
 
+        analysis_instr_log(
+            logger,
+            'analysis_run_created',
+            run_id=run.id,
+            project_id=project.id,
+            status=run.status,
+            sonar_project_key='',
+            input_type=input_type,
+            original_filename=(uploaded.name or '')[:120],
+            duration_ms=0,
+        )
         start_analysis_run(
             run_id=run.id,
             source_name=uploaded.name,

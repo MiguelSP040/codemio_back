@@ -83,6 +83,8 @@ class SonarRuntimeServiceTests(SimpleTestCase):
         generated_properties = captured_properties.get('content', '')
         self.assertIn('sonar.inclusions=**/*.java', generated_properties)
         self.assertIn('sonar.exclusions=**/*.zip', generated_properties)
+        self.assertIn('sonar.qualitygate.wait=false', generated_properties)
+        self.assertNotIn('sonar.qualitygate.wait=true', generated_properties)
 
     @override_settings(
         SONAR_HOST_URL='https://sonarcloud.io',

@@ -3,7 +3,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
-from analysis.models import AnalysisFileMetric, AnalysisRun, AnalysisRunStatus
+from analysis.models import AnalysisFileMetric, AnalysisFinding, AnalysisRun, AnalysisRunStatus
 from authentication.models import RolUsuario, Usuario
 from authentication.principal import CognitoPrincipal
 from projects.models import Project
@@ -224,6 +224,32 @@ class AnalysisRunsApiTests(TestCase):
         self.assertIn(active_run.id, ids)
         self.assertNotIn(inactive_run.id, ids)
 
+    def test_list_runs_omits_heavy_nested_relations(self):
+        run = AnalysisRun.objects.create(
+            project=self.owner_project,
+            user=self.owner,
+            status=AnalysisRunStatus.DONE,
+            input_type='java',
+            original_filename='a.java',
+            findings_count=1,
+        )
+        AnalysisFinding.objects.create(
+            run=run,
+            tool='pmd',
+            severity='MAJOR',
+            message='issue',
+        )
+        AnalysisFileMetric.objects.create(run=run, file_path='a.java')
+
+        self.client.force_authenticate(user=CognitoPrincipal(self.owner))
+        response = self.client.get('/analysis/runs/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        row = response.data['results'][0]
+        self.assertNotIn('findings', row)
+        self.assertNotIn('file_metrics', row)
+        self.assertNotIn('metrics', row)
+        self.assertEqual(row['findings_count'], 1)
+
     def test_admin_can_list_and_retrieve_foreign_runs(self):
         owner_run = AnalysisRun.objects.create(
             project=self.owner_project,
@@ -282,3 +308,60 @@ class AnalysisRunsApiTests(TestCase):
         self.assertEqual(detail.data['metrics']['interclass_calls_count'], 5)
         self.assertEqual(len(detail.data['file_metrics']), 1)
         self.assertEqual(detail.data['file_metrics'][0]['file_path'], 'src/Main.java')
+
+    def test_get_run_status_returns_minimal_payload(self):
+        run = AnalysisRun.objects.create(
+            project=self.owner_project,
+            user=self.owner,
+            status=AnalysisRunStatus.RUNNING,
+            input_type='java',
+            original_filename='x.java',
+            logical_filename='x.java',
+            quality_gate_status='',
+            findings_count=0,
+        )
+        self.client.force_authenticate(user=CognitoPrincipal(self.owner))
+        response = self.client.get(f'/analysis/runs/{run.id}/status/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['id'], run.id)
+        self.assertEqual(response.data['status'], AnalysisRunStatus.RUNNING)
+        self.assertEqual(response.data['project_id'], self.owner_project.id)
+        self.assertNotIn('findings', response.data)
+        self.assertNotIn('file_metrics', response.data)
+
+    def test_get_run_status_blocks_foreign_user(self):
+        foreign_run = AnalysisRun.objects.create(
+            project=self.other_project,
+            user=self.other_user,
+            input_type='java',
+            original_filename='other.java',
+        )
+        self.client.force_authenticate(user=CognitoPrincipal(self.owner))
+        response = self.client.get(f'/analysis/runs/{foreign_run.id}/status/')
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_status_bulk_returns_minimal_rows(self):
+        r1 = AnalysisRun.objects.create(
+            project=self.owner_project,
+            user=self.owner,
+            status=AnalysisRunStatus.WAITING_SONAR_WEBHOOK,
+            input_type='java',
+            original_filename='a.java',
+            logical_filename='a.java',
+        )
+        r2 = AnalysisRun.objects.create(
+            project=self.owner_project,
+            user=self.owner,
+            status=AnalysisRunStatus.DONE,
+            input_type='java',
+            original_filename='b.java',
+            logical_filename='b.java',
+        )
+        self.client.force_authenticate(user=CognitoPrincipal(self.owner))
+        response = self.client.get('/analysis/runs/status_bulk/', {'ids': f'{r1.id},{r2.id}'})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 2)
+        for row in response.data:
+            self.assertNotIn('findings', row)
+            self.assertNotIn('file_metrics', row)
+            self.assertIn('status', row)

@@ -122,14 +122,12 @@ def _run_scanner(
                 f'sonar.projectKey={project_key}',
                 f'sonar.projectName={source_name}',
                 'sonar.projectVersion=runtime',
-                # Use a relative path to avoid Windows backslash escaping issues in .properties.
                 'sonar.sources=source',
                 'sonar.inclusions=**/*.java',
                 'sonar.exclusions=**/*.zip',
                 'sonar.sourceEncoding=UTF-8',
                 'sonar.language=java',
-                'sonar.qualitygate.wait=true',
-                f'sonar.qualitygate.timeout={config.qualitygate_timeout_seconds}',
+                'sonar.qualitygate.wait=false',
                 'sonar.scanner.skipJreProvisioning=true',
             ]
         ),
@@ -363,13 +361,14 @@ def _evaluate_mvp_quality_gate(
     return 'OK'
 
 
-def run_sonar_analysis(
+def push_sonar_scan_only(
     *,
     source_dir: Path,
     workspace_dir: Path,
     project_key: str,
     source_name: str,
-) -> SonarAnalysisResult:
+) -> None:
+
     config = _build_config()
     _run_scanner(
         source_dir=source_dir,
@@ -378,6 +377,33 @@ def run_sonar_analysis(
         source_name=source_name,
         config=config,
     )
+
+
+def run_sonar_analysis(
+    *,
+    source_dir: Path,
+    workspace_dir: Path,
+    project_key: str,
+    source_name: str,
+) -> SonarAnalysisResult:
+
+    config = _build_config()
+    push_sonar_scan_only(
+        source_dir=source_dir,
+        workspace_dir=workspace_dir,
+        project_key=project_key,
+        source_name=source_name,
+    )
     findings = _fetch_issues(project_key=project_key, config=config)
     metrics = _fetch_metrics(project_key=project_key, config=config)
     return SonarAnalysisResult(findings=findings, metrics=metrics)
+
+
+def fetch_sonar_issues_public(project_key: str) -> list[NormalizedFinding]:
+    config = _build_config()
+    return _fetch_issues(project_key=project_key, config=config)
+
+
+def fetch_sonar_metrics_public(project_key: str) -> SonarMetrics:
+    config = _build_config()
+    return _fetch_metrics(project_key=project_key, config=config)

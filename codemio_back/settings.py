@@ -164,7 +164,10 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # CORS Configuration
 CORS_ALLOWED_ORIGINS = config(
     'CORS_ALLOWED_ORIGINS',
-    default='http://localhost:5173,http://localhost:3000',
+    default=(
+        'http://localhost:5173,http://localhost:5174,http://127.0.0.1:5174,'
+        'http://localhost:3000'
+    ),
     cast=Csv()
 )
 
@@ -214,6 +217,7 @@ REST_FRAMEWORK = {
         'analysis_runs': '20/min',
         'analysis_runs_write': '20/min',
         'analysis_runs_read': '240/min',
+        'sonar_webhook': '120/min',
     },
 }
 
@@ -254,3 +258,6 @@ SONAR_SCANNER_COMMAND = config('SONAR_SCANNER_COMMAND', default='sonar-scanner')
 SONAR_RUNTIME_PROJECT_PREFIX = config('SONAR_RUNTIME_PROJECT_PREFIX', default='codemio-runtime')
 SONAR_QUALITYGATE_TIMEOUT_SECONDS = config('SONAR_QUALITYGATE_TIMEOUT_SECONDS', default=180, cast=int)
 SONAR_API_TIMEOUT_SECONDS = config('SONAR_API_TIMEOUT_SECONDS', default=30, cast=int)
+SONAR_WEBHOOK_SECRET = config('SONAR_WEBHOOK_SECRET', default='')
+SONAR_WEBHOOK_STALE_MINUTES = config('SONAR_WEBHOOK_STALE_MINUTES', default=45, cast=int)
+DEBUG_ANALYSIS_INSTRUMENTATION = config('DEBUG_ANALYSIS_INSTRUMENTATION', default=False, cast=bool)

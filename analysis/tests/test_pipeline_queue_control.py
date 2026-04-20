@@ -1,5 +1,4 @@
 from unittest.mock import patch
-from types import SimpleNamespace
 
 from django.test import TestCase, override_settings
 
@@ -41,32 +40,17 @@ class PipelineQueueControlTests(TestCase):
 
     @override_settings(ANALYSIS_RETRY_ATTEMPTS=2, ANALYSIS_RETRY_BACKOFF_SECONDS=0)
     @patch('analysis.services.pipeline.time.sleep', return_value=None)
-    @patch('analysis.services.pipeline.run_sonar_analysis')
-    def test_execute_analysis_run_retries_and_succeeds(self, mocked_sonar, _mocked_sleep):
+    @patch('analysis.services.pipeline.push_sonar_scan_only')
+    def test_execute_analysis_run_retries_and_succeeds(self, mocked_push, _mocked_sleep):
         run = AnalysisRun.objects.create(
             project=self.project,
             user=self.user,
             input_type=AnalysisInputType.JAVA,
             original_filename='Retry.java',
         )
-        ok_metrics = SimpleNamespace(
-            quality_gate_status='OK',
-            bugs=0,
-            vulnerabilities=0,
-            code_smells=0,
-            complexity=0,
-            duplicated_lines_density=0.0,
-            duplicated_lines=0,
-            coverage=0.0,
-            lines_to_cover=0,
-            ncloc=1,
-            reliability_rating=1,
-            security_rating=1,
-            maintainability_rating=1,
-        )
-        mocked_sonar.side_effect = [
+        mocked_push.side_effect = [
             RuntimeError('sonar transient error'),
-            SimpleNamespace(findings=[], metrics=ok_metrics),
+            None,
         ]
 
         _execute_analysis_run(
@@ -77,6 +61,6 @@ class PipelineQueueControlTests(TestCase):
         )
 
         run.refresh_from_db()
-        self.assertEqual(run.status, AnalysisRunStatus.DONE)
-        self.assertEqual(mocked_sonar.call_count, 2)
+        self.assertEqual(run.status, AnalysisRunStatus.WAITING_SONAR_WEBHOOK)
+        self.assertEqual(mocked_push.call_count, 2)
         self.assertEqual(run.error_summary, '')
