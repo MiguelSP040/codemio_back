@@ -15,6 +15,12 @@ from authentication.views import (
     ProfilePayloadPublicKeyView,
     UsersMeView,
 )
+from authentication.social_views import (
+    AuthGithubCallbackView,
+    AuthGithubStartView,
+    AuthSocialLogoutView,
+    AuthSocialSessionView,
+)
 from drf_yasg import openapi
 from drf_yasg.views import get_schema_view
 from rest_framework import permissions
@@ -62,6 +68,10 @@ urlpatterns = [
         name='auth-confirm-forgot-password',
     ),
     path('auth/register/', AuthRegisterView.as_view(), name='auth-register'),
+    path('auth/github/', AuthGithubStartView.as_view(), name='auth-github-start'),
+    path('auth/github/callback/', AuthGithubCallbackView.as_view(), name='auth-github-callback'),
+    path('auth/social/logout/', AuthSocialLogoutView.as_view(), name='auth-social-logout'),
+    path('auth/social/session/', AuthSocialSessionView.as_view(), name='auth-social-session'),
     path('auth/payload-public-key/', ProfilePayloadPublicKeyView.as_view(), name='auth-payload-public-key'),
     path('users/me/', UsersMeView.as_view(), name='users-me'),
     path('users/', AdminUsersListView.as_view(), name='admin-users-list'),
