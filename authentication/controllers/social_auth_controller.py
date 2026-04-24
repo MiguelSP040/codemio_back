@@ -4,7 +4,7 @@ import logging
 
 from django.conf import settings
 
-from authentication.models import Usuario
+from authentication.models import CognitoUser, CognitoUserStatus, Usuario
 from authentication.serializers import UsuarioMeReadSerializer
 from authentication.services.social_oauth_service import SocialOAuthError, SocialOAuthService
 
@@ -50,8 +50,13 @@ class SocialAuthController:
         email = (claims.get('email') or '').strip().lower()
         sub = (claims.get('sub') or '').strip()
         name = (claims.get('name') or '').strip() or None
-        profile = (claims.get('preferred_username') or '').strip() or None
+        profile = (
+            (claims.get('preferred_username') or '').strip()
+            or (claims.get('nickname') or '').strip()
+            or None
+        )
         picture = (claims.get('picture') or '').strip() or None
+        username = profile or email
         email_verified = claims.get('email_verified')
         if settings.SOCIAL_AUTH_DEBUG_LOGS:
             if settings.SOCIAL_AUTH_LOG_FULL_CLAIMS:
@@ -72,6 +77,14 @@ class SocialAuthController:
                 'SocialOAuthClaimsInvalid',
                 'El token no contiene los claims requeridos (email y sub).',
             )
+        CognitoUser.objects.update_or_create(
+            email=email,
+            defaults={
+                'username': username,
+                'cognito_sub': sub,
+                'status': CognitoUserStatus.CONFIRMED,
+            },
+        )
 
         usuario = Usuario.objects.filter(sub_cognito=sub).first()
         lookup_by = 'sub_cognito'
@@ -90,6 +103,7 @@ class SocialAuthController:
                 correo=email,
                 sub_cognito=sub,
                 nombre=name,
+                edad=18,
                 perfil_github=profile,
             )
             if settings.SOCIAL_AUTH_DEBUG_LOGS:
@@ -106,6 +120,9 @@ class SocialAuthController:
         if name and not usuario.nombre:
             usuario.nombre = name
             updates.append('nombre')
+        if usuario.edad is None:
+            usuario.edad = 18
+            updates.append('edad')
         if profile and not usuario.perfil_github:
             usuario.perfil_github = profile
             updates.append('perfil_github')
