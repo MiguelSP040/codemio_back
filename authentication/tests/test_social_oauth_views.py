@@ -2,6 +2,7 @@ from unittest.mock import patch
 
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
+from django.core.cache import cache
 
 from authentication.models import Usuario
 
@@ -20,6 +21,7 @@ from authentication.models import Usuario
 class SocialOAuthViewsTests(TestCase):
     def setUp(self):
         self.client = APIClient()
+        cache.clear()
 
     def test_github_start_redirects_to_cognito_authorize(self):
         with self.assertLogs('authentication.social_views', level='INFO') as captured:
@@ -91,3 +93,27 @@ class SocialOAuthViewsTests(TestCase):
         response = self.client.post('/auth/social/logout/')
         self.assertEqual(response.status_code, 200)
         self.assertIn('codemio_access_token', response.cookies)
+
+    @patch('authentication.controllers.social_auth_controller.SocialAuthController.complete_github_login')
+    def test_social_bootstrap_exchange_returns_payload_once(self, mock_complete):
+        mock_complete.return_value = (
+            {
+                'access_token': 'acc-token',
+                'refresh_token': 'ref-token',
+                'id_token': 'id-token',
+            },
+            {'correo': 'social@example.com'},
+        )
+        self.client.cookies['codemio_oauth_state'] = 'state-123'
+        self.client.cookies['codemio_oauth_verifier'] = 'verifier-123'
+        callback_response = self.client.get('/auth/github/callback/?state=state-123&code=abc')
+        self.assertEqual(callback_response.status_code, 302)
+        self.assertIn('social_code=', callback_response['Location'])
+        social_code = callback_response['Location'].split('social_code=', 1)[1]
+
+        first = self.client.get(f'/auth/social/bootstrap/?code={social_code}')
+        second = self.client.get(f'/auth/social/bootstrap/?code={social_code}')
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.data['tokens']['access_token'], 'acc-token')
+        self.assertEqual(first.data['usuario']['correo'], 'social@example.com')
+        self.assertEqual(second.status_code, 400)
