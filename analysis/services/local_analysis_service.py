@@ -274,7 +274,7 @@ def _safe_parse_java(source: str):
 def _method_fingerprint(node) -> str:
     body = getattr(node, "body", None) or []
     compact = "".join(type(stmt).__name__ for stmt in body)
-    return hashlib.sha1(f"{node.name}:{compact}".encode("utf-8")).hexdigest()
+    return hashlib.sha256(f"{node.name}:{compact}".encode("utf-8")).hexdigest()
 
 
 def _estimate_nesting_depth(method_node) -> int:
@@ -395,7 +395,7 @@ def _map_semgrep_severity(raw: str) -> str:
 
 def _stable_issue_key(tool: str, rule: str, file_path: str, line, message: str) -> str:
     payload = f"{tool}|{rule}|{file_path}|{line or 0}|{message[:200]}"
-    digest = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:20]
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:20]
     return f"{tool}:{digest}"
 
 
