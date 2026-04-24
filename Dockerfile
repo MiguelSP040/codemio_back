@@ -5,7 +5,8 @@ FROM python:3.12-slim AS base
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    ANALYSIS_PMD_COMMAND=pmd
 
 # Set work directory
 WORKDIR /app
@@ -25,6 +26,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && mv /opt/sonar-scanner-5.0.1.3006-linux /opt/sonar-scanner \
     && rm /tmp/sonar-scanner.zip \
     && ln -s /opt/sonar-scanner/bin/sonar-scanner /usr/local/bin/sonar-scanner
+
+# PMD CLI (local_analysis_service usa subprocess: `pmd check ...`)
+ARG PMD_VERSION=7.24.0
+RUN wget -q "https://github.com/pmd/pmd/releases/download/pmd_releases%2F${PMD_VERSION}/pmd-dist-${PMD_VERSION}-bin.zip" -O /tmp/pmd.zip \
+    && unzip -q /tmp/pmd.zip -d /opt/ \
+    && rm /tmp/pmd.zip \
+    && ln -sf "/opt/pmd-bin-${PMD_VERSION}/bin/pmd" /usr/local/bin/pmd \
+    && chmod +x "/opt/pmd-bin-${PMD_VERSION}/bin/pmd" \
+    && pmd --help >/dev/null
 
 # Stage 2: Install dependencies
 FROM base AS dependencies
