@@ -6,6 +6,7 @@ from rest_framework.test import APIClient
 
 from authentication.models import RolUsuario, Usuario
 from authentication.principal import CognitoPrincipal
+from authentication.services.cognito_service import CognitoServiceError
 
 
 class AdminUsersApiTests(TestCase):
@@ -82,7 +83,10 @@ class AdminUsersApiTests(TestCase):
         self.assertEqual(self.user.nombre, 'Nuevo Nombre')
         self.assertEqual(self.user.edad, 30)
         self.assertEqual(self.user.perfil_github, 'new')
-        cognito.admin_update_user_attributes.assert_called()
+        cognito.admin_update_user_attributes.assert_called_with(
+            'user@example.com',
+            {'profile': 'new'},
+        )
 
         # No debe permitir cambiar correo/rol
         r2 = self.client.patch(
@@ -91,6 +95,47 @@ class AdminUsersApiTests(TestCase):
             format='json',
         )
         self.assertEqual(r2.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch('authentication.controllers.admin_users_controller.get_cognito_service')
+    def test_admin_patch_age_does_not_fail_when_cognito_sync_errors(self, get_cognito_service_mock):
+        cognito = get_cognito_service_mock.return_value
+        cognito.admin_get_user_optional.return_value = {'UserAttributes': []}
+        cognito.admin_update_user_attributes.side_effect = CognitoServiceError(
+            'InvalidParameterException',
+            'sync error',
+        )
+
+        self.client.force_authenticate(user=CognitoPrincipal(self.admin))
+        r = self.client.patch(
+            f'/users/{self.user.id}/',
+            {
+                'edad': 31,
+                'perfil_github': 'new-profile',
+            },
+            format='json',
+        )
+
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.edad, 31)
+        self.assertEqual(self.user.perfil_github, 'new-profile')
+
+    @patch('authentication.controllers.admin_users_controller.get_cognito_service')
+    def test_admin_patch_blank_profile_skips_cognito_sync(self, get_cognito_service_mock):
+        cognito = get_cognito_service_mock.return_value
+        cognito.admin_get_user_optional.return_value = {'UserAttributes': []}
+
+        self.client.force_authenticate(user=CognitoPrincipal(self.admin))
+        r = self.client.patch(
+            f'/users/{self.user.id}/',
+            {
+                'perfil_github': '   ',
+            },
+            format='json',
+        )
+
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        cognito.admin_update_user_attributes.assert_not_called()
 
     @patch('authentication.controllers.admin_users_controller.get_cognito_service')
     def test_admin_delete_user(self, get_cognito_service_mock):

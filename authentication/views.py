@@ -1,5 +1,6 @@
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
+import logging
 from rest_framework import status
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -33,6 +34,7 @@ from authentication.services.cognito_service import CognitoServiceError
 
 _EMAIL_EXAMPLE = 'user@example.com'
 _MSG_USUARIO_NO_ENCONTRADO = 'Usuario no encontrado.'
+logger = logging.getLogger(__name__)
 
 _COGNITO_ERROR = openapi.Schema(
     type=openapi.TYPE_OBJECT,
@@ -839,7 +841,17 @@ class AdminUsersDetailView(APIView):
 
         ctrl = AdminUsersController()
         if 'perfil_github' in ser.validated_data:
-            ctrl.sync_github_profile(usuario.correo, usuario.perfil_github)
+            try:
+                ctrl.sync_github_profile(usuario.correo, usuario.perfil_github)
+            except CognitoServiceError as exc:
+                logger.warning(
+                    'No se pudo sincronizar perfil_github en Cognito',
+                    extra={
+                        'email': usuario.correo,
+                        'usuario_id': usuario.id,
+                        'reason': str(exc),
+                    },
+                )
 
         payload = AdminUsuarioReadSerializer(usuario).data
         payload['cognito'] = ctrl.get_cognito_state(usuario.correo)
