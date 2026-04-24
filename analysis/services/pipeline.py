@@ -220,6 +220,8 @@ def _execute_analysis_run(
                         parameters_count=item.parameters_count,
                         inheritance_count=item.inheritance_count,
                         interclass_calls_count=item.interclass_calls_count,
+                        big_o_hint=item.big_o_hint,
+                        big_o_reason=item.big_o_reason,
                     )
                     for item in analysis_result.syntax_metrics.files
                 ]

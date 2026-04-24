@@ -1,5 +1,6 @@
 import hashlib
 import logging
+from collections import Counter, defaultdict
 from pathlib import Path
 from django.conf import settings
 from django.db import transaction
@@ -46,6 +47,8 @@ class AnalysisFileMetricSerializer(serializers.ModelSerializer):
             'parameters_count',
             'inheritance_count',
             'interclass_calls_count',
+            'big_o_hint',
+            'big_o_reason',
         )
         read_only_fields = fields
 
@@ -56,6 +59,7 @@ class AnalysisRunSerializer(serializers.ModelSerializer):
     findings = AnalysisFindingSerializer(many=True, read_only=True)
     file_metrics = AnalysisFileMetricSerializer(many=True, read_only=True)
     metrics = serializers.SerializerMethodField()
+    tool_summary = serializers.SerializerMethodField()
     overwrite_applied = serializers.SerializerMethodField()
 
     def get_metrics(self, obj: AnalysisRun) -> dict:
@@ -82,6 +86,63 @@ class AnalysisRunSerializer(serializers.ModelSerializer):
 
     def get_overwrite_applied(self, obj: AnalysisRun) -> bool:
         return bool(getattr(obj, 'overwrite_applied', False))
+
+    def get_tool_summary(self, obj: AnalysisRun) -> list[dict]:
+        tools = ('semgrep', 'lizard', 'javalang', 'pmd', 'spotbugs')
+        base_by_tool: dict[str, dict] = {
+            tool: {
+                'tool': tool,
+                'total_findings': 0,
+                'by_severity': {
+                    'critical': 0,
+                    'high': 0,
+                    'medium': 0,
+                    'low': 0,
+                },
+                'top_rules': [],
+                'affected_files_count': 0,
+            }
+            for tool in tools
+        }
+        if not hasattr(obj, 'findings'):
+            return [base_by_tool[tool] for tool in tools]
+
+        rules_by_tool: dict[str, Counter] = defaultdict(Counter)
+        files_by_tool: dict[str, set[str]] = defaultdict(set)
+        severity_map = {
+            'CRITICAL': 'critical',
+            'HIGH': 'high',
+            'MEDIUM': 'medium',
+            'LOW': 'low',
+        }
+
+        for finding in obj.findings.all():
+            tool = str(getattr(finding, 'tool', '') or '').strip().lower()
+            if tool not in base_by_tool:
+                continue
+            bucket = base_by_tool[tool]
+            bucket['total_findings'] += 1
+
+            sev_raw = str(getattr(finding, 'severity', '') or '').upper()
+            sev_key = severity_map.get(sev_raw, 'low')
+            bucket['by_severity'][sev_key] += 1
+
+            rule = str(getattr(finding, 'rule', '') or '').strip() or 'N/A'
+            rules_by_tool[tool][rule] += 1
+
+            file_path = str(getattr(finding, 'file_path', '') or '').strip()
+            if file_path:
+                files_by_tool[tool].add(file_path)
+
+        for tool in tools:
+            bucket = base_by_tool[tool]
+            bucket['top_rules'] = [
+                {'rule': rule, 'count': count}
+                for rule, count in rules_by_tool[tool].most_common(3)
+            ]
+            bucket['affected_files_count'] = len(files_by_tool[tool])
+
+        return [base_by_tool[tool] for tool in tools]
 
     class Meta:
         model = AnalysisRun
@@ -124,6 +185,7 @@ class AnalysisRunSerializer(serializers.ModelSerializer):
             'findings',
             'file_metrics',
             'metrics',
+            'tool_summary',
             'overwrite_applied',
         )
         read_only_fields = fields
