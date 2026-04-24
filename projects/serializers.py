@@ -1,6 +1,6 @@
 from pathlib import Path
 from rest_framework import serializers
-from analysis.models import AnalysisFileMetric, AnalysisFinding, AnalysisRunStatus
+from analysis.models import AnalysisFileMetric, AnalysisFinding, AnalysisRun, AnalysisRunStatus
 from projects.models import Project, ProjectState
 
 
@@ -68,6 +68,26 @@ class ProjectSerializer(serializers.ModelSerializer):
         return value
 
     def get_quality_score(self, obj: Project) -> int:
+        active_done_runs = self._get_active_done_runs(obj)
+        if active_done_runs:
+            run_scores = []
+            has_non_zero_issues = False
+            for run in active_done_runs:
+                issues = int(run.bugs or 0) + int(run.vulnerabilities or 0) + int(run.code_smells or 0)
+                if issues > 0:
+                    has_non_zero_issues = True
+                run_scores.append(max(self.SCORE_BASE - issues, 0))
+
+            if has_non_zero_issues:
+                avg_score = round(sum(run_scores) / len(run_scores))
+                return max(min(avg_score, 100), 0)
+
+            active_run_ids = [run.id for run in active_done_runs]
+            has_findings = AnalysisFinding.objects.filter(run_id__in=active_run_ids).exists()
+            if not has_findings:
+                avg_score = round(sum(run_scores) / len(run_scores))
+                return max(min(avg_score, 100), 0)
+
         counts_by_severity, unique_files_count = self._get_latest_counts_and_files(obj)
         total_weight = sum(
             counts_by_severity.get(severity, 0) * weight
@@ -138,6 +158,21 @@ class ProjectSerializer(serializers.ModelSerializer):
         result = (counts_by_severity, unique_files_count)
         self.context[cache_key] = result
         return result
+
+    def _get_active_done_runs(self, obj: Project) -> list[AnalysisRun]:
+        cache_key = f'active_done_runs:{obj.pk}'
+        cached = self.context.get(cache_key)
+        if cached is not None:
+            return cached
+        runs = list(
+            AnalysisRun.objects.filter(
+                project=obj,
+                status=AnalysisRunStatus.DONE,
+                is_active_for_filename=True,
+            ).only('id', 'bugs', 'vulnerabilities', 'code_smells')
+        )
+        self.context[cache_key] = runs
+        return runs
 
     @staticmethod
     def _normalize_file_key(file_path: str) -> str:
