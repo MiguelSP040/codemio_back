@@ -69,6 +69,7 @@ echo "Collecting static files..."\n\
 python manage.py collectstatic --noinput\n\
 echo "Running database migrations..."\n\
 python manage.py migrate --noinput\n\
+python manage.py createcachetable || true\n\
 echo "Starting Gunicorn..."\n\
 exec gunicorn codemio_back.wsgi:application \\\n\
   --bind 0.0.0.0:${PORT:-8000} \\\n\
