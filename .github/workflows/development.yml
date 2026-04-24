@@ -59,6 +59,7 @@ jobs:
         ALLOWED_HOSTS: ${{ vars.CI_ALLOWED_HOSTS || 'localhost,127.0.0.1' }}
       run: |
         python manage.py migrate
+        python manage.py createcachetable || true
 
     - name: Run tests
       env:

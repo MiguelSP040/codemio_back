@@ -114,6 +114,22 @@ else:
         }
     }
 
+# Caché: con DATABASE_URL (p. ej. Render + Gunicorn con varios workers) LocMemCache rompe el flujo
+# OAuth social (bootstrap en memoria en un worker, lectura en otro → 400). DatabaseCache comparte estado.
+if DATABASE_URL:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+            'LOCATION': 'codemio_django_cache',
+        }
+    }
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        }
+    }
+
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
