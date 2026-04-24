@@ -41,9 +41,11 @@ class AdminUsersController:
     def sync_github_profile(self, email: str, perfil_github: str | None) -> None:
 
         value = (perfil_github or '').strip()
+        if not value:
+            return
         if self._cognito.admin_get_user_optional(email) is None:
             return
-        self._cognito.admin_update_user_attributes(email, {'custom:perfil_github': value})
+        self._cognito.admin_update_user_attributes(email, {'profile': value})
 
     def delete_in_cognito(self, email: str) -> None:
         self._cognito.admin_delete_user(email)
