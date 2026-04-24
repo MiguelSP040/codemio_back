@@ -85,6 +85,10 @@ class CognitoJWTAuthentication(BaseAuthentication):
     def _extract_bearer_token(self, request) -> str:
         raw_auth = request.META.get('HTTP_AUTHORIZATION')
         if raw_auth is None or not str(raw_auth).strip():
+            cookie_name = getattr(settings, 'COOKIE_ACCESS_TOKEN_NAME', 'codemio_access_token')
+            cookie_token = (request.COOKIES.get(cookie_name) or '').strip()
+            if cookie_token:
+                return cookie_token
             raise AuthenticationFailed(_MSG_NO_HEADER)
 
         header = str(raw_auth).strip()
