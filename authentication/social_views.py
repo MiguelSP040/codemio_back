@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import logging
+import secrets
 
 from django.conf import settings
 from django.http import HttpResponseRedirect
@@ -12,6 +13,7 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.core.cache import cache
 
 from authentication.controllers.social_auth_controller import SocialAuthController
 from authentication.services.social_oauth_service import SocialOAuthError
@@ -20,6 +22,12 @@ _OAUTH_STATE_COOKIE = 'codemio_oauth_state'
 _OAUTH_NONCE_COOKIE = 'codemio_oauth_nonce'
 _OAUTH_VERIFIER_COOKIE = 'codemio_oauth_verifier'
 logger = logging.getLogger(__name__)
+_SOCIAL_BOOTSTRAP_CACHE_PREFIX = 'social_bootstrap:'
+
+
+def _append_query_param(url: str, key: str, value: str) -> str:
+    separator = '&' if '?' in url else '?'
+    return f'{url}{separator}{key}={value}'
 
 
 def _cookie_common() -> dict:
@@ -133,8 +141,14 @@ class AuthGithubCallbackView(APIView):
                 user,
                 tokens if settings.SOCIAL_AUTH_LOG_FULL_TOKENS else {'keys': sorted(tokens.keys())},
             )
-
-        response = HttpResponseRedirect(frontend_dashboard)
+        bootstrap_code = secrets.token_urlsafe(24)
+        cache.set(
+            f'{_SOCIAL_BOOTSTRAP_CACHE_PREFIX}{bootstrap_code}',
+            {'tokens': tokens, 'usuario': user},
+            timeout=120,
+        )
+        redirect_url = _append_query_param(frontend_dashboard, 'social_code', bootstrap_code)
+        response = HttpResponseRedirect(redirect_url)
         for cookie_name in (_OAUTH_STATE_COOKIE, _OAUTH_NONCE_COOKIE, _OAUTH_VERIFIER_COOKIE):
             _clear_auth_cookie(response, cookie_name)
 
@@ -163,6 +177,32 @@ class AuthGithubCallbackView(APIView):
                 max_age=int(settings.SESSION_COOKIE_MAX_AGE),
             )
         return response
+
+
+class AuthSocialBootstrapView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @swagger_auto_schema(
+        tags=['01 Sesión'],
+        operation_summary='Bootstrap social por código efímero',
+        operation_description='Intercambia un social_code one-time por tokens/usuario para bootstrap frontend.',
+        security=[],
+        responses={
+            200: openapi.Response(description='Código válido; retorna payload de sesión.'),
+            400: openapi.Response(description='Código inválido o expirado.'),
+        },
+    )
+    def get(self, request):
+        code = (request.query_params.get('code') or '').strip()
+        if not code:
+            return Response({'detail': 'Código de bootstrap requerido.'}, status=status.HTTP_400_BAD_REQUEST)
+        cache_key = f'{_SOCIAL_BOOTSTRAP_CACHE_PREFIX}{code}'
+        payload = cache.get(cache_key)
+        if payload is None:
+            return Response({'detail': 'Código de bootstrap inválido o expirado.'}, status=status.HTTP_400_BAD_REQUEST)
+        cache.delete(cache_key)
+        return Response(payload, status=status.HTTP_200_OK)
 
 
 class AuthSocialLogoutView(APIView):

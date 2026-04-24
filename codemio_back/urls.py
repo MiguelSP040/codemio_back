@@ -16,6 +16,7 @@ from authentication.views import (
     UsersMeView,
 )
 from authentication.social_views import (
+    AuthSocialBootstrapView,
     AuthGithubCallbackView,
     AuthGithubStartView,
     AuthSocialLogoutView,
@@ -70,6 +71,7 @@ urlpatterns = [
     path('auth/register/', AuthRegisterView.as_view(), name='auth-register'),
     path('auth/github/', AuthGithubStartView.as_view(), name='auth-github-start'),
     path('auth/github/callback/', AuthGithubCallbackView.as_view(), name='auth-github-callback'),
+    path('auth/social/bootstrap/', AuthSocialBootstrapView.as_view(), name='auth-social-bootstrap'),
     path('auth/social/logout/', AuthSocialLogoutView.as_view(), name='auth-social-logout'),
     path('auth/social/session/', AuthSocialSessionView.as_view(), name='auth-social-session'),
     path('auth/payload-public-key/', ProfilePayloadPublicKeyView.as_view(), name='auth-payload-public-key'),
