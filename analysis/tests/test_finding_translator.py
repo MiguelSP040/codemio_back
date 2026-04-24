@@ -8,7 +8,6 @@ class FindingTranslatorTests(SimpleTestCase):
         out = translate_finding_message(
             rule="java:S106",
             message="Replace this use of System.out by a logger.",
-            tool="pmd",
         )
         self.assertEqual(out, "Reemplaza el uso de System.out por un logger.")
 
@@ -16,7 +15,6 @@ class FindingTranslatorTests(SimpleTestCase):
         out = translate_finding_message(
             rule="",
             message='File path "a/b/C.java" should match package name "com.demo"',
-            tool="semgrep",
         )
         self.assertIn('La ruta del archivo "a/b/C.java"', out)
         self.assertIn('"com.demo"', out)
@@ -25,6 +23,5 @@ class FindingTranslatorTests(SimpleTestCase):
         out = translate_finding_message(
             rule="x",
             message="Potential null pointer in method",
-            tool="spotbugs",
         )
         self.assertIn("Posible referencia nula", out)

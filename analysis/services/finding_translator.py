@@ -45,7 +45,7 @@ _PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"^\s*Usage of System\.out/err\s*$", re.I), "Evita usar System.out/err; usa un logger."),
     (re.compile(r"^\s*This if statement can be replaced by `return \{condition\};`\s*$", re.I), "Este if puede reemplazarse por `return condición;`."),
     (re.compile(r"^\s*Use equals\(\) to compare object references\.\s*$", re.I), 'Usa equals() para comparar referencias de objetos.'),
-    (re.compile(r"^\s*Use equals\(\) to compare strings instead of '==|!='\s*$", re.I), 'Usa equals() para comparar cadenas en lugar de "==" o "!=".'),
+    (re.compile(r"^\s*Use equals\(\) to compare strings instead of '(==|!=)'\s*$", re.I), 'Usa equals() para comparar cadenas en lugar de "==" o "!=".'),
     (re.compile(r"^\s*Do not use `new Integer\(\.\.\.\)`, prefer `Integer\.valueOf\(\.\.\.\)`\s*$", re.I), "No uses `new Integer(...)`; prefiere `Integer.valueOf(...)`."),
     (re.compile(r"^\s*This if statement could be combined with its parent\s*$", re.I), "Este if puede combinarse con su bloque padre."),
     (re.compile(r"^\s*Deeply nested if\.\.then statements are hard to read\s*$", re.I), "Los if anidados en exceso dificultan la lectura."),
@@ -70,7 +70,7 @@ _QUICK_REPLACEMENTS: list[tuple[re.Pattern[str], str]] = [
 ]
 
 
-def translate_finding_message(*, rule: str, message: str, tool: str) -> str:
+def translate_finding_message(*, rule: str, message: str) -> str:
     text = (message or "").strip()
     if not text:
         return ""

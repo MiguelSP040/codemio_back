@@ -200,7 +200,6 @@ def _execute_analysis_run(
                         message_es=translate_finding_message(
                             rule=finding.rule,
                             message=finding.message,
-                            tool=finding.tool,
                         ),
                         finding_type=finding.finding_type,
                         effort_minutes=finding.effort_minutes,
@@ -305,36 +304,20 @@ def _extract_zip(zip_path: Path, target_dir: Path, validation_warnings: list[str
             processed_entries += 1
             if processed_entries > max_entries:
                 raise RuntimeError("ZIP inválido: excede el número máximo de entradas permitidas.")
-            clean_parts = _validate_zip_member(
-                member,
+            extracted_count, extracted_size = _process_zip_member(
+                archive=archive,
+                member=member,
+                target_dir=target_dir,
                 max_depth=max_depth,
                 max_entry_bytes=max_entry_bytes,
                 max_compression_ratio=max_compression_ratio,
-            )
-            if clean_parts is None:
-                continue
-            content = archive.read(member)
-            if len(content) != int(member.file_size):
-                raise RuntimeError("ZIP inválido: tamaño real de archivo no coincide con metadatos.")
-            try:
-                validate_java_source_bytes(content, source_name=member.filename or "archivo.java")
-            except ValueError as exc:
-                warning = str(exc)
-                collected_warnings.append(warning)
-                if validation_warnings is not None:
-                    validation_warnings.append(warning)
-                continue
-            extracted_count, extracted_size = _check_extraction_limits(
                 extracted_count=extracted_count,
                 extracted_size=extracted_size,
-                file_size=int(member.file_size),
                 max_files=max_files,
                 max_bytes=max_bytes,
+                collected_warnings=collected_warnings,
+                validation_warnings=validation_warnings,
             )
-
-            destination = _safe_destination_path(target_dir, clean_parts)
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_bytes(content)
 
     if extracted_count == 0:
         if collected_warnings:
@@ -442,3 +425,60 @@ def _normalize_file_path(raw_path: str) -> str:
     if marker in normalized:
         return normalized.split(marker, 1)[1]
     return Path(normalized).name if normalized else ""
+
+
+def _process_zip_member(
+    *,
+    archive: zipfile.ZipFile,
+    member: zipfile.ZipInfo,
+    target_dir: Path,
+    max_depth: int,
+    max_entry_bytes: int,
+    max_compression_ratio: float,
+    extracted_count: int,
+    extracted_size: int,
+    max_files: int,
+    max_bytes: int,
+    collected_warnings: list[str],
+    validation_warnings: list[str] | None,
+) -> tuple[int, int]:
+    clean_parts = _validate_zip_member(
+        member,
+        max_depth=max_depth,
+        max_entry_bytes=max_entry_bytes,
+        max_compression_ratio=max_compression_ratio,
+    )
+    if clean_parts is None:
+        return extracted_count, extracted_size
+
+    content = archive.read(member)
+    if len(content) != int(member.file_size):
+        raise RuntimeError("ZIP inválido: tamaño real de archivo no coincide con metadatos.")
+
+    warning = _validate_java_member_content(content, member.filename or "archivo.java")
+    if warning is not None:
+        collected_warnings.append(warning)
+        if validation_warnings is not None:
+            validation_warnings.append(warning)
+        return extracted_count, extracted_size
+
+    extracted_count, extracted_size = _check_extraction_limits(
+        extracted_count=extracted_count,
+        extracted_size=extracted_size,
+        file_size=int(member.file_size),
+        max_files=max_files,
+        max_bytes=max_bytes,
+    )
+
+    destination = _safe_destination_path(target_dir, clean_parts)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(content)
+    return extracted_count, extracted_size
+
+
+def _validate_java_member_content(content: bytes, source_name: str) -> str | None:
+    try:
+        validate_java_source_bytes(content, source_name=source_name)
+    except ValueError as exc:
+        return str(exc)
+    return None
