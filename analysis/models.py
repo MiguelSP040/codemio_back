@@ -132,6 +132,8 @@ class AnalysisFileMetric(models.Model):
     parameters_count = models.PositiveIntegerField(default=0)
     inheritance_count = models.PositiveIntegerField(default=0)
     interclass_calls_count = models.PositiveIntegerField(default=0)
+    big_o_hint = models.CharField(max_length=30, blank=True, default='')
+    big_o_reason = models.CharField(max_length=255, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

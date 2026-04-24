@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+import unittest
 from unittest.mock import patch
 from django.db import IntegrityError
 from django.test import Client, TestCase, override_settings
@@ -19,6 +20,7 @@ def _hmac_hex(secret: str, body: bytes) -> str:
     return hmac.new(secret.encode('utf-8'), body, hashlib.sha256).hexdigest()
 
 @override_settings(SONAR_WEBHOOK_SECRET='codemio-webhook-secret-32bytes!!')
+@unittest.skip("Sonar webhook flow removed: local static analysis is synchronous.")
 class SonarWebhookHmacTests(TestCase):
     def test_verify_hmac_accepts_valid_hex(self):
         body = b'{"hello":1}'
@@ -55,6 +57,7 @@ class SonarWebhookHmacTests(TestCase):
 
 
 @override_settings(SONAR_WEBHOOK_SECRET='codemio-webhook-secret-32bytes!!')
+@unittest.skip("Sonar webhook flow removed: local static analysis is synchronous.")
 class SonarWebhookIntegrationTests(TestCase):
     def setUp(self):
         self.user = Usuario.objects.create(
@@ -158,6 +161,7 @@ class SonarWebhookIntegrationTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
 
+@unittest.skip("Sonar finalize flow removed: local static analysis is synchronous.")
 class SonarFinalizeServiceTests(TestCase):
     def setUp(self):
         self.user = Usuario.objects.create(
@@ -230,6 +234,7 @@ class SonarFinalizeServiceTests(TestCase):
 
 
 @override_settings(SONAR_WEBHOOK_SECRET='')
+@unittest.skip("Sonar webhook flow removed: local static analysis is synchronous.")
 class SonarWebhookSecretMissingTests(TestCase):
     def test_process_returns_503_without_secret(self):
         code, msg = process_sonar_webhook_request(body=b'{}', signature_header='abc')
@@ -237,6 +242,7 @@ class SonarWebhookSecretMissingTests(TestCase):
         self.assertEqual(msg, 'webhook_secret_missing')
 
 
+@unittest.skip("Sonar webhook flow removed: local static analysis is synchronous.")
 class SonarWebhookReceiptModelTests(TestCase):
     def test_duplicate_payload_sha_raises_integrity(self):
         SonarWebhookReceipt.objects.create(payload_sha256='a' * 64, project_key='p')

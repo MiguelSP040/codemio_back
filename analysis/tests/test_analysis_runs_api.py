@@ -134,6 +134,21 @@ class AnalysisRunsApiTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('source_file', response.data)
 
+    def test_create_run_rejects_non_java_content_in_java_extension(self):
+        self.client.force_authenticate(user=CognitoPrincipal(self.owner))
+        uploaded = SimpleUploadedFile(
+            'fake.java',
+            b'import os\n\ndef hola():\n    return 1\n',
+            content_type='text/plain',
+        )
+        response = self.client.post(
+            '/analysis/runs/',
+            {'project_id': self.owner_project.id, 'source_file': uploaded},
+            format='multipart',
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('source_file', response.data)
+
     def test_create_run_rejects_foreign_project(self):
         self.client.force_authenticate(user=CognitoPrincipal(self.owner))
         uploaded = SimpleUploadedFile('demo.java', b'class Demo {}', content_type='text/plain')
@@ -224,7 +239,7 @@ class AnalysisRunsApiTests(TestCase):
         self.assertIn(active_run.id, ids)
         self.assertNotIn(inactive_run.id, ids)
 
-    def test_list_runs_omits_heavy_nested_relations(self):
+    def test_list_runs_includes_nested_relations_for_dashboard(self):
         run = AnalysisRun.objects.create(
             project=self.owner_project,
             user=self.owner,
@@ -245,9 +260,9 @@ class AnalysisRunsApiTests(TestCase):
         response = self.client.get('/analysis/runs/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         row = response.data['results'][0]
-        self.assertNotIn('findings', row)
-        self.assertNotIn('file_metrics', row)
-        self.assertNotIn('metrics', row)
+        self.assertIn('findings', row)
+        self.assertIn('file_metrics', row)
+        self.assertIn('metrics', row)
         self.assertEqual(row['findings_count'], 1)
 
     def test_admin_can_list_and_retrieve_foreign_runs(self):

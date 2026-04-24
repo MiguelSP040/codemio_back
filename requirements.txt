@@ -41,3 +41,5 @@ drf-yasg==1.21.8
 coverage==7.6.1
 pytest-cov==4.1.0
 javalang==0.13.0
+lizard
+semgrep
