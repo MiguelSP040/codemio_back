@@ -7,6 +7,7 @@ from rest_framework import serializers
 from analysis.instrumentation import analysis_instr_log
 from analysis.models import AnalysisFileMetric, AnalysisFinding, AnalysisInputType, AnalysisRun
 logger = logging.getLogger(__name__)
+from analysis.services.java_content_validator import validate_java_source_bytes
 from analysis.services.pipeline import start_analysis_run
 from projects.models import Project, ProjectState
 
@@ -187,6 +188,13 @@ class AnalysisRunCreateSerializer(serializers.Serializer):
             head = b''
         if ext == '.zip' and head[:2] != b'PK':
             raise serializers.ValidationError('El archivo ZIP no tiene una firma válida.')
+        if ext == '.java':
+            try:
+                raw = value.read()
+                value.seek(0)
+                validate_java_source_bytes(raw, source_name=value.name or 'archivo.java')
+            except ValueError as exc:
+                raise serializers.ValidationError(str(exc)) from exc
         return value
 
     def create(self, validated_data):

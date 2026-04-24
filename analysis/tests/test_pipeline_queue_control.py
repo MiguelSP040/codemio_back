@@ -40,17 +40,54 @@ class PipelineQueueControlTests(TestCase):
 
     @override_settings(ANALYSIS_RETRY_ATTEMPTS=2, ANALYSIS_RETRY_BACKOFF_SECONDS=0)
     @patch('analysis.services.pipeline.time.sleep', return_value=None)
-    @patch('analysis.services.pipeline.push_sonar_scan_only')
-    def test_execute_analysis_run_retries_and_succeeds(self, mocked_push, _mocked_sleep):
+    @patch('analysis.services.pipeline.run_local_analysis')
+    def test_execute_analysis_run_retries_and_succeeds(self, mocked_local_analysis, _mocked_sleep):
         run = AnalysisRun.objects.create(
             project=self.project,
             user=self.user,
             input_type=AnalysisInputType.JAVA,
             original_filename='Retry.java',
         )
-        mocked_push.side_effect = [
+        mocked_local_analysis.side_effect = [
             RuntimeError('sonar transient error'),
-            None,
+            type(
+                "LocalResult",
+                (),
+                {
+                    "findings": [],
+                    "syntax_metrics": type(
+                        "SyntaxMetrics",
+                        (),
+                        {
+                            "files": [],
+                            "classes_count": 0,
+                            "methods_count": 0,
+                            "parameters_count": 0,
+                            "inheritance_count": 0,
+                            "interclass_calls_count": 0,
+                        },
+                    )(),
+                    "metrics": type(
+                        "Metrics",
+                        (),
+                        {
+                            "quality_gate_status": "OK",
+                            "bugs": 0,
+                            "vulnerabilities": 0,
+                            "code_smells": 0,
+                            "complexity": 0,
+                            "duplicated_lines_density": 0.0,
+                            "duplicated_lines": 0,
+                            "coverage": 0.0,
+                            "lines_to_cover": 0,
+                            "ncloc": 0,
+                            "reliability_rating": 1,
+                            "security_rating": 1,
+                            "maintainability_rating": 1,
+                        },
+                    )(),
+                },
+            )(),
         ]
 
         _execute_analysis_run(
@@ -61,6 +98,6 @@ class PipelineQueueControlTests(TestCase):
         )
 
         run.refresh_from_db()
-        self.assertEqual(run.status, AnalysisRunStatus.WAITING_SONAR_WEBHOOK)
-        self.assertEqual(mocked_push.call_count, 2)
+        self.assertEqual(run.status, AnalysisRunStatus.DONE)
+        self.assertEqual(mocked_local_analysis.call_count, 2)
         self.assertEqual(run.error_summary, '')
